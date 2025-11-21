@@ -1,10 +1,10 @@
 # Helpful tips
 
-Compared to an individual GitHub account, working within an organization has some extra features to be aware of when creating repos.
+To make things a little easier, here is some helpful information for using GitHub in an organization as well as some git in general.
 
 ## Collaborators and teams
 
-When creating a repo, it is private by default. You can also set it to public for the entire world to see. For private repos, you can give access to people within the organization. Here is how to give individuals and even an entire team access to a private repo.
+Compared to an individual GitHub account, working within an organization has some extra features to be aware of when creating repos. When creating a repo, it is private by default. You can also set it to public for the entire world to see. For private repos, you can give access to people within the organization. Here is how to give individuals and even an entire team access to a private repo.
 
 1. From the repo page, go to the *Settings* page.
 1. On the sidebar, select *Collaborators and teams*.
