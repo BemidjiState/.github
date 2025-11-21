@@ -4,7 +4,7 @@ To make things a little easier, here is some helpful information for using GitHu
 
 ## Best practice
 
-* Never commit API keys or Personal Authentication Tokens (PATs) in git repositories. Use client side configs instead.
+* Never commit passwords, API keys, or Personal Authentication Tokens (PATs) in a git repository. Use client side configs instead.
 * Commits should be small and frequent.
 * Consider using [Conventional Commits](https://www.conventionalcommits.org) specification for human and machine readable commit message.
 
