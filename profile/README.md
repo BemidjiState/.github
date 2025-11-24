@@ -1,19 +1,23 @@
 # Helpful tips
 
-To make things a little easier, here is some helpful information for using GitHub in an organization as well as some git in general.
+Here is some helpful information on using GitHub within an organization. Some of this also applies to using git in general.
 
-## Best practice
+## Best practices
 
-* Never commit passwords, API keys, or Personal Authentication Tokens (PATs) in a git repository. Use client side configs instead.
+* Never commit private information, passwords, API keys, or Personal Access Tokens (PATs) in a git repository (repo).
 * Commits should be small and frequent.
 * Consider using [Conventional Commits](https://www.conventionalcommits.org) specification for human and machine readable commit message.
 
 ## Collaborators and teams
 
-Compared to an individual GitHub account, working within an organization has some extra features to be aware of when creating repos. When creating a repo, it is private by default. You can also set it to public for the entire world to see. For private repos, you can give access to people within the organization. Here is how to give individuals and even an entire team access to a private repo.
+Working within an organization offers some additional features compared to a personal GitHub account. In our organization, repos are set to private by default, with the option to make them public. You can selectively grant access to a private repo for individuals or entire teams. Here's how to provide access to a private repo.
 
-1. From the repo page, go to the *Settings* page.
-1. On the sidebar, select *Collaborators and teams*.
-1. Use the *Add people* or *Add teams* button.
-1. Select the person or team you would like to have access to the repo.
-1. When prompted, select the role the person or team should have and use the *Add selection* button to submit your choice.
+1. From the repo page, go to the **Settings** page.
+1. On the sidebar, select **Collaborators and teams**.
+1. Use the **Add people** or **Add teams** button.
+1. Select the person or team you would like to grant access to.
+1. When prompted, select a role for the person or team and use the **Add selection** button to submit your choice.
+
+## How to use GitHub
+
+Instructions on just about everything can be found in [GitHub Docs](https://docs.github.com). 
