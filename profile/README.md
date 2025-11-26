@@ -1,6 +1,6 @@
 # Helpful tips
 
-Here is some helpful information on using GitHub within an organization. Some of this also applies to using git in general.
+Here is some helpful information on using GitHub within an organization. Some of this also applies to using git in general. The official [GitHub Docs](https://docs.github.com) are a good resource on how to use GitHub features.
 
 ## Best practices
 
@@ -17,7 +17,3 @@ Working within an organization offers some additional features compared to a per
 1. Use the **Add people** or **Add teams** button.
 1. Select the person or team you would like to grant access to.
 1. When prompted, select a role for the person or team and use the **Add selection** button to submit your choice.
-
-## How to use GitHub
-
-Instructions on just about everything can be found in [GitHub Docs](https://docs.github.com). 
