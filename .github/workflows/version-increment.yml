@@ -51,9 +51,14 @@ jobs:
         id: use_version
         run: |
           VERSION_STRING="${{ steps.calculate-version.outputs.version-string }}"
-          echo "Calculated version: $VERSION_STRING"
-          echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_ENV
-          echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_OUTPUT
+          if [ "" == $VERSION_STRING ]; then
+            echo "Error: a version was not calculated."
+            exit 1
+          else
+            echo "Calculated version: $VERSION_STRING"
+            echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_ENV
+            echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_OUTPUT
+          fi
 
       - name: Update package.json
         if: ${{ inputs.update_package_json }}
