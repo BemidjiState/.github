@@ -1,0 +1,84 @@
+name: "Semantic Versioning - Automatic"
+description: "Automatically create a new semantic version string based on conventional commit messages. Add a tag and update version in specified files."
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: 'The name of the primary branch.'
+        required: false
+        type: string
+        default: 'main'
+      package_json:
+        description: 'Whether to update version package.json version if the file exists.'
+        required: false
+        type: boolean
+        default: true
+      wp_plugin_file:
+        description: 'Path to a WordPress plugin PHP file (e.g., plugin-name.php).'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      new_version:
+        description: "The calculated semantic version"
+        value: ${{ jobs.versioning.outputs.new_version }}
+
+permissions:
+  contents: write
+
+jobs:
+  versioning:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.use_version.outputs.NEW_VERSION }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calculate version
+        id: calculate-version
+        uses: bitshifted/git-auto-semver@v2
+        with:
+          main_branch: ${{ inputs.main_branch }}
+          create_tag: false
+          tag_prefix: ""
+
+      - name: Use version
+        id: use_version
+        run: |
+          VERSION_STRING="${{ steps.calculate-version.outputs.version-string }}"
+          echo "Calculated version: $VERSION_STRING"
+          echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_ENV
+          echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_OUTPUT
+
+      - name: Update package.json
+        if: ${{ inputs.update_package_json }}
+        run: |
+          if [ -f package.json ]; then
+            jq '.version = "${{env.NEW_VERSION}}"' package.json > package.json.tmp && mv package.json.tmp package.json
+            echo "Updated package.json to ${{env.NEW_VERSION}}"
+          else
+            echo "package.json not found, skipping."
+          fi
+
+      - name: Update WordPress plugin file version
+        if: ${{ inputs.wp_plugin_file != '' }}
+        run: |
+          if [ -f "${{ inputs.wp_plugin_file }}" ]; then
+            sed -i 's/Version:.*/Version: ${{env.NEW_VERSION}}/' "${{ inputs.wp_plugin_file }}"
+            echo "Updated ${{ inputs.wp_plugin_file }} to ${{env.NEW_VERSION}}"
+          else
+            echo "Error: WordPress file '${{ inputs.wp_plugin_file }}' defined in inputs but not found."
+            exit 1
+          fi
+
+      - name: Commit version and create tag
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: 'chore: bump version to ${{env.NEW_VERSION}}'
+          commit_options: '--no-verify'
+          tag_name: '${{env.NEW_VERSION}}'
