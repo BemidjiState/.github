@@ -49,9 +49,10 @@ jobs:
 
       - name: Use version
         id: use_version
+        env:
+          VERSION_STRING: ${{ steps.calculate-version.outputs.version-string }}
         run: |
-          VERSION_STRING="${{ steps.calculate-version.outputs.version-string }}"
-          if [ "" == $VERSION_STRING ]; then
+          if [ -z "$VERSION_STRING" ]; then
             echo "Error: a version was not calculated."
             exit 1
           else
