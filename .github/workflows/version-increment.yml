@@ -77,14 +77,14 @@ jobs:
           fi
 
       - name: Update style.css version
-      if: ${{ inputs.style_css }}
-      run: |
-        if [ -f style.css ]; then
-          sed -i 's/Version:.*/Version ${{env.NEW_VERSION}}/' style.css
-          echo "Updated style.css to ${{env.NEW_VERSION}}"
-        else
-          echo "style.css not found, skipping."
-        fi
+        if: ${{ inputs.style_css }}
+        run: |
+          if [ -f style.css ]; then
+            sed -i 's/Version:.*/Version ${{env.NEW_VERSION}}/' style.css
+            echo "Updated style.css to ${{env.NEW_VERSION}}"
+          else
+            echo "style.css not found, skipping."
+          fi
 
       - name: Update WordPress plugin file version
         if: ${{ inputs.wp_plugin_file != '' }}
