@@ -18,7 +18,7 @@ on:
         description: 'Whether to update version in style.css if the file exists.'
         required: false
         type: boolean
-        default: 'style.css'
+        default: false
       wp_plugin_file:
         description: 'Path to a WordPress plugin PHP file (e.g. plugin-name.php).'
         required: false
