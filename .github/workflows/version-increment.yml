@@ -91,8 +91,8 @@ jobs:
         run: |
           filename="$(echo ${{ github.repository }} | cut -d'/' -f2).php"
           if [ ${{ inputs.wp_plugin_file }} ] && [ -f "${filename}" ]; then
-            sed -i 's/ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/' "${{ inputs.wp_plugin_file }}"
-            echo "Updated ${{ inputs.wp_plugin_file }} to ${{env.NEW_VERSION}}"
+            sed -i 's/ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/' "${filename}"
+            echo "Updated ${filename} to ${{ env.NEW_VERSION }}"
           else
             echo "Error: WordPress file '${{ inputs.wp_plugin_file }}' defined in inputs but not found."
             exit 1
