@@ -20,7 +20,7 @@ on:
         type: boolean
         default: false
       wp_plugin_file:
-        description: 'Path to a WordPress plugin PHP file (e.g. plugin-name.php).'
+        description: 'Name (or path) of a WordPress plugin PHP file (e.g. plugin-name.php).'
         required: false
         type: string
         default: ''
@@ -67,7 +67,7 @@ jobs:
           fi
 
       - name: Update package.json
-        if: ${{ inputs.update_package_json }}
+        if: ${{ inputs.package_json }}
         run: |
           if [ -f package.json ]; then
             jq '.version = "${{env.NEW_VERSION}}"' package.json > package.json.tmp && mv package.json.tmp package.json
@@ -75,6 +75,16 @@ jobs:
           else
             echo "package.json not found, skipping."
           fi
+
+      - name: Update style.css version
+      if: ${{ inputs.style_css }}
+      run: |
+        if [ -f style.css ]; then
+          sed -i 's/Version:.*/Version ${{env.NEW_VERSION}}/' style.css
+          echo "Updated style.css to ${{env.NEW_VERSION}}"
+        else
+          echo "style.css not found, skipping."
+        fi
 
       - name: Update WordPress plugin file version
         if: ${{ inputs.wp_plugin_file != '' }}
