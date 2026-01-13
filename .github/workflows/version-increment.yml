@@ -4,7 +4,7 @@ description: "Automatically create a new semantic version string based on conven
 on:
   workflow_call:
     inputs:
-      branch:
+      primary_branch:
         description: 'The name of the primary branch.'
         required: false
         type: string
@@ -43,7 +43,7 @@ jobs:
         id: calculate-version
         uses: bitshifted/git-auto-semver@v2
         with:
-          main_branch: ${{ inputs.main_branch }}
+          main_branch: ${{ inputs.primary_branch }}
           create_tag: false
           tag_prefix: ""
 
