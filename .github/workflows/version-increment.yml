@@ -94,7 +94,7 @@ jobs:
             sed -i 's/ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/' "${filename}"
             echo "Updated ${filename} to ${{ env.NEW_VERSION }}"
           else
-            echo "Error: WordPress file '${{ inputs.wp_plugin_file }}' defined in inputs but not found."
+            echo "Error: WordPress file '${filename}' defined in inputs but not found."
             exit 1
           fi
 
