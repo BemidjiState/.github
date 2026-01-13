@@ -18,12 +18,12 @@ on:
         description: 'Whether to update version in style.css if the file exists.'
         required: false
         type: boolean
-        default: false
+        default: true
       wp_plugin_file:
-        description: 'Name (or path) of a WordPress plugin PHP file (e.g. plugin-name.php).'
+        description: 'Whether to update version in the WordPress plugin PHP file (i.e. repo-name.php).'
         required: false
-        type: string
-        default: ''
+        type: boolean
+        default: true
     outputs:
       new_version:
         description: "The calculated semantic version"
@@ -80,17 +80,18 @@ jobs:
         if: ${{ inputs.style_css }}
         run: |
           if [ -f style.css ]; then
-            sed -i 's/Version:.*/Version ${{env.NEW_VERSION}}/' style.css
+            sed -i 's/ \* Version:.*/ * Version ${{env.NEW_VERSION}}/' style.css
             echo "Updated style.css to ${{env.NEW_VERSION}}"
           else
             echo "style.css not found, skipping."
           fi
 
       - name: Update WordPress plugin file version
-        if: ${{ inputs.wp_plugin_file != '' }}
+        if: ${{ inputs.wp_plugin_file }}
         run: |
-          if [ -f "${{ inputs.wp_plugin_file }}" ]; then
-            sed -i 's/Version:.*/Version: ${{env.NEW_VERSION}}/' "${{ inputs.wp_plugin_file }}"
+          filename="$(echo ${{ github.repository }} | cut -d'/' -f2).php"
+          if [ -f "${{ inputs.wp_plugin_file }}" ] && [ -f "${filename}" ]; then
+            sed -i 's/ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/' "${{ inputs.wp_plugin_file }}"
             echo "Updated ${{ inputs.wp_plugin_file }} to ${{env.NEW_VERSION}}"
           else
             echo "Error: WordPress file '${{ inputs.wp_plugin_file }}' defined in inputs but not found."
