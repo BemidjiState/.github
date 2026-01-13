@@ -90,7 +90,7 @@ jobs:
         if: ${{ inputs.wp_plugin_file }}
         run: |
           filename="$(echo ${{ github.repository }} | cut -d'/' -f2).php"
-          if [ -f "${{ inputs.wp_plugin_file }}" ] && [ -f "${filename}" ]; then
+          if [ ${{ inputs.wp_plugin_file }} ] && [ -f "${filename}" ]; then
             sed -i 's/ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/' "${{ inputs.wp_plugin_file }}"
             echo "Updated ${{ inputs.wp_plugin_file }} to ${{env.NEW_VERSION}}"
           else
