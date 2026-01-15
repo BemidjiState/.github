@@ -57,10 +57,15 @@ jobs:
       - name: Use version
         id: use_version
         env:
-          VERSION_STRING: ${{ steps.calculate-version.outputs.version }}
+          VERSION_STRING: ${{ steps.calculate-version.outputs.version-string }}
         run: |
           if [ -z "$VERSION_STRING" ]; then
             echo "Error: a version was not calculated."
+            echo "Debugging:"
+            echo "Listing last 5 tags:"
+            git tag -n5
+            echo "Last commit message:"
+            git log -1 --pretty=%B
             exit 1
           else
             echo "Calculated version: $VERSION_STRING"
