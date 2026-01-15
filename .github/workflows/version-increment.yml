@@ -53,8 +53,8 @@ jobs:
           create_tag: false # A tag will be created at the last step.
           tag_prefix: ""
 
+      # Make VERSION_STRING available to other steps in this reusable workflow.
       - name: Use version
-        description: Make VERSION_STRING available to other steps in this reusable workflow.
         id: use_version
         env:
           VERSION_STRING: ${{ steps.calculate-version.outputs.version-string }}
