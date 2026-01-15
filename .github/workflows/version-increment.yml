@@ -1,11 +1,11 @@
 name: "Semantic Versioning - Automatic"
-description: "Automatically create a new semantic version string based on conventional commit messages. Add a tag and update version in specified files."
+description: "Automatically create a new semantic version string based on conventional commit messages. Add a tag and update version in specified files that have a consistent naming convention and location within projects."
 
 on:
   workflow_call:
     inputs:
       primary_branch:
-        description: 'The name of the primary branch.'
+        description: 'The name of the primary branch this workflow will run on.'
         required: false
         type: string
         default: 'main'
@@ -29,6 +29,7 @@ on:
         description: "The calculated semantic version"
         value: ${{ jobs.versioning.outputs.new_version }}
 
+# Write access to the repo is needed to commit and add a tag.
 permissions:
   contents: write
 
@@ -49,10 +50,11 @@ jobs:
         uses: bitshifted/git-auto-semver@v2
         with:
           main_branch: ${{ inputs.primary_branch }}
-          create_tag: false
+          create_tag: false # A tag will be created at the last step.
           tag_prefix: ""
 
       - name: Use version
+        description: Make VERSION_STRING available to other steps in this reusable workflow.
         id: use_version
         env:
           VERSION_STRING: ${{ steps.calculate-version.outputs.version-string }}
@@ -102,5 +104,5 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'chore: bump version to ${{env.NEW_VERSION}}'
-          commit_options: '--no-verify'
+          commit_options: '--no-verify' # Bypass pre-commit hooks.
           tag_name: '${{env.NEW_VERSION}}'
