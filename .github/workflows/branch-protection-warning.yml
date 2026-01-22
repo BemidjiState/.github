@@ -1,0 +1,21 @@
+name: "Check if merging to 'main' from 'release' branch"
+
+on:
+ pull_request:
+   branches: [main] # The branch to protect.
+
+jobs:
+ restrict-to-merge-branch-main:
+   runs-on: ubuntu-latest
+
+   # To prevent a merge on failure, branch protection must be enabled in GitHub. If branch
+   # protection is disabled, this will fail with a red X but nothing prevents you from merging
+   # anyway.
+   steps:
+     - name: Check merge branch
+       if: github.event.pull_request.base.ref == 'main'
+       run: |
+         if [ "${{ github.event.pull_request.head.ref }}" != "release" ]; then
+           echo "Merges to 'main' are only allowed from the 'release' branch."
+           exit 1
+         fi 
