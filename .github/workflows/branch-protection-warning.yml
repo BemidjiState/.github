@@ -1,4 +1,4 @@
-name: "Check if merging to 'main' from 'release' branch"
+name: "Check if merging from 'release' branch"
 
 on:
   workflow_call:
@@ -24,7 +24,7 @@ jobs:
         if: ${{ github.event.pull_request.base.ref }} == ${{ inputs.primary_branch }}
         run: |
           if [ "${{ github.event.pull_request.head.ref }}" != "release" ]; then
-            echo "Merges to '${{ inputs.primary_branch }}' are only allowed from the 'release' branch."
+            echo "Merging to '${{ inputs.primary_branch }}' is only allowed from the 'release' branch."
             exit 1
           fi
           echo "Success!"
