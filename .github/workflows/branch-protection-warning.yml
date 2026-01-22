@@ -21,7 +21,7 @@ jobs:
     # anyway.
     steps:
       - name: Check merge branch
-        if: github.event.pull_request.base.ref == ${{ inputs.primary_branch }}
+        if: ${{ github.event.pull_request.base.ref }} == ${{ inputs.primary_branch }}
         run: |
           if [ "${{ github.event.pull_request.head.ref }}" != "release" ]; then
             echo "Merges to '${{ inputs.primary_branch }}' are only allowed from the 'release' branch."
