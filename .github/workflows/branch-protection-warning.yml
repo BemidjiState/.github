@@ -2,10 +2,12 @@ name: "Check if merging to 'main' from 'release' branch"
 
 on:
  pull_request:
-   branches: [main] # The branch to protect.
+   branches: # These should be primary branch names.
+    - main
+    - master
 
 jobs:
- restrict-to-merge-branch-main:
+ protect-primary-branch:
    runs-on: ubuntu-latest
 
    # To prevent a merge on failure, branch protection must be enabled in GitHub. If branch
