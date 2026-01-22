@@ -23,8 +23,9 @@ jobs:
       - name: Check merge branch
         if: ${{ github.event.pull_request.base.ref }} == ${{ inputs.primary_branch }}
         run: |
-          if [ "${{ github.event.pull_request.head.ref }}" != "release" ]; then
+          if [ "${{ github.event.pull_request.head.ref }}" = "release" ]; then
+            echo "Success: merging to '${{ github.event.pull_request.base.ref }}' from 'release' branch"
+          else
             echo "Merging to '${{ inputs.primary_branch }}' is only allowed from the 'release' branch."
             exit 1
           fi
-          echo "Success!"
