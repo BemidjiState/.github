@@ -4,18 +4,20 @@ description: "Automatically create a new semantic version string based on conven
 on:
   workflow_call:
     inputs:
-      primary_branch:
-        description: 'The name of the primary branch this workflow will run on.'
+      release_branch:
+        # Running this on the release branch is recommended. On repos that have few updates, running
+        # this on main is fine.
+        description: 'The name of the branch to examine when updating version.'
         required: false
         type: string
         default: 'main'
       package_json:
-        description: 'Whether to update version in package.json if the file exists.'
+        description: 'Whether to update version in package.json.'
         required: false
         type: boolean
         default: true
       style_css:
-        description: 'Whether to update version in style.css if the file exists.'
+        description: 'Whether to update version in style.css.'
         required: false
         type: boolean
         default: true
@@ -49,7 +51,7 @@ jobs:
         id: calculate-version
         uses: bitshifted/git-auto-semver@v2
         with:
-          main_branch: ${{ inputs.primary_branch }}
+          main_branch: ${{ inputs.release_branch }}
           create_tag: false # A tag will be created at the last step.
           tag_prefix: ""
 
