@@ -1,28 +1,33 @@
 name: "Semantic Versioning - Automatic"
-description: "Automatically create a new semantic version string based on conventional commit messages. Add a tag and update version in specified files that have a consistent naming convention and location within projects."
+description: "Automatically create a new semantic version string based on conventional commit messages. Updates the version in specified files that have a consistent naming convention and location within projects. Then adds a tag and release to the repo."
 
 on:
   workflow_call:
     inputs:
       release_branch:
-        # Running this on the release branch is recommended. On repos that have few updates, running
+        # Running this on the release branch is recommended. On rarely update repos, running
         # this on main is fine.
         description: 'The name of the branch to examine when updating version.'
         required: false
         type: string
         default: 'main'
+      create_release:
+        description: 'Should a release be generated?'
+        required: false
+        type: boolean
+        default: false
       package_json:
-        description: 'Whether to update version in package.json.'
+        description: 'Should the version be updated in package.json.'
         required: false
         type: boolean
         default: true
       style_css:
-        description: 'Whether to update version in style.css.'
+        description: 'Should the version be updated in style.css.'
         required: false
         type: boolean
         default: true
       wp_plugin_file:
-        description: 'Whether to update version in the WordPress plugin PHP file (i.e. repo-name.php).'
+        description: 'Should the version be updated in the WordPress plugin PHP file (i.e. repo-name.php).'
         required: false
         type: boolean
         default: true
@@ -42,7 +47,7 @@ jobs:
       new_version: ${{ steps.use_version.outputs.NEW_VERSION }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -113,3 +118,24 @@ jobs:
           commit_message: 'chore: bump version to ${{env.NEW_VERSION}}'
           commit_options: '--no-verify' # Bypass pre-commit hooks.
           tag_name: '${{env.NEW_VERSION}}'
+
+  # Create release
+  create-release:
+    needs: versioning
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Version to use
+        run: |
+          echo "Using version ${{ needs.versioning.outputs.new_version }}"
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          tag_name: '${{ needs.versioning.outputs.new_version }}'
+          token: ${{ secrets.GITHUB_TOKEN }}
