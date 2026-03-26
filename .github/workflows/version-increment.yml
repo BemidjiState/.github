@@ -1,21 +1,9 @@
-name: "Semantic Versioning - Automatic"
-description: "Automatically create a new semantic version string based on conventional commit messages. Updates the version in specified files that have a consistent naming convention and location within projects. Then adds a tag and release to the repo."
+name: "Calculate Semantic Version and Create Tag"
+description: "Automatically calculate a new semantic version string based on conventional commit messages. Updates specified files with the current version, commits them, and adds a tag."
 
 on:
   workflow_call:
     inputs:
-      release_branch:
-        # Running this on the release branch is recommended. On rarely update repos, running
-        # this on main is fine.
-        description: 'The name of the branch to examine when updating version.'
-        required: false
-        type: string
-        default: 'main'
-      create_release:
-        description: 'Should a release be generated?'
-        required: false
-        type: boolean
-        default: false
       package_json:
         description: 'Should the version be updated in package.json.'
         required: false
@@ -116,26 +104,5 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'chore: bump version to ${{env.NEW_VERSION}}'
-          commit_options: '--no-verify' # Bypass pre-commit hooks.
+          commit_options: '--no-verify'  # Bypass pre-commit hooks.
           tag_name: '${{env.NEW_VERSION}}'
-
-  # Create release
-  create-release:
-    needs: versioning
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - name: Version to use
-        run: |
-          echo "Using version ${{ needs.versioning.outputs.new_version }}"
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          tag_name: '${{ needs.versioning.outputs.new_version }}'
-          token: ${{ secrets.GITHUB_TOKEN }}
