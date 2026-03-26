@@ -8,17 +8,17 @@ on:
         description: 'Should the version be updated in package.json.'
         required: false
         type: boolean
-        default: true
+        default: false
       style_css:
         description: 'Should the version be updated in style.css.'
         required: false
         type: boolean
-        default: true
+        default: false
       wp_plugin_file:
         description: 'Should the version be updated in the WordPress plugin PHP file (i.e. repo-name.php).'
         required: false
         type: boolean
-        default: true
+        default: false
     outputs:
       new_version:
         description: "The calculated semantic version"
