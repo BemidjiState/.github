@@ -44,8 +44,9 @@ jobs:
         id: calculate-version
         uses: bitshifted/git-auto-semver@v2
         with:
-          main_branch: ${{ inputs.release_branch }}
-          create_tag: false # A tag will be created at the last step.
+          # Running on main will calculate semver. Otherwise a git hash is used.
+          main_branch: ${{ github.ref_name }}
+          create_tag: false  # A tag will be created at the last step.
           tag_prefix: ""
 
       # Make VERSION_STRING available to other steps in this reusable workflow.
