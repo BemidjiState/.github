@@ -58,7 +58,7 @@ jobs:
           if [ -z "$VERSION_STRING" ]; then
             echo "Error: a version was not calculated."
             echo "Debugging:"
-            echo "Listing last 5 tags:"
+            echo "Last 5 tags:"
             git tag -n5
             echo "Last commit message:"
             git log -1 --pretty=%B
@@ -70,7 +70,7 @@ jobs:
           fi
 
       - name: Update package.json
-        if: ${{ inputs.package_json }}
+        if: ${{ true == inputs.package_json }}
         run: |
           if [ -f package.json ]; then
             jq '.version = "${{env.NEW_VERSION}}"' package.json > package.json.tmp && mv package.json.tmp package.json
@@ -80,7 +80,7 @@ jobs:
           fi
 
       - name: Update style.css version
-        if: ${{ inputs.style_css }}
+        if: ${{ true == inputs.style_css }}
         run: |
           if [ -f style.css ]; then
             sed -i 's/ \* Version:.*/ * Version ${{env.NEW_VERSION}}/' style.css
@@ -90,7 +90,7 @@ jobs:
           fi
 
       - name: Update WordPress plugin file version
-        if: ${{ inputs.wp_plugin_file }}
+        if: ${{ true == inputs.wp_plugin_file }}
         run: |
           filename="$(echo ${{ github.repository }} | cut -d'/' -f2).php"
           if [ ${{ inputs.wp_plugin_file }} ] && [ -f "${filename}" ]; then
@@ -101,7 +101,7 @@ jobs:
             exit 1
           fi
 
-      - name: Commit version and create tag
+      - name: Commit version file changes and create tag
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'chore: bump version to ${{env.NEW_VERSION}}'
