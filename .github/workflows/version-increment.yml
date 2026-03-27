@@ -69,27 +69,29 @@ jobs:
             echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update package.json
+      - name: Update version in package.json
         if: ${{ true == inputs.package_json }}
         run: |
           if [ -f package.json ]; then
             jq '.version = "${{env.NEW_VERSION}}"' package.json > package.json.tmp && mv package.json.tmp package.json
             echo "Updated package.json to ${{env.NEW_VERSION}}"
           else
-            echo "package.json not found, skipping."
+            echo "Error: package.json not found."
+            exit 1
           fi
 
-      - name: Update style.css version
+      - name: Update version in style.css
         if: ${{ true == inputs.style_css }}
         run: |
           if [ -f style.css ]; then
             sed -i "s/^ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/" style.css
             echo "Updated style.css to ${{env.NEW_VERSION}}"
           else
-            echo "style.css not found, skipping."
+            echo "Error: style.css not found."
+            exit 1
           fi
 
-      - name: Update WordPress plugin file version
+      - name: Update version in the WordPress plugin file
         if: ${{ true == inputs.wp_plugin_file }}
         run: |
           filename="$(echo ${{ github.repository }} | cut -d'/' -f2).php"
@@ -97,7 +99,7 @@ jobs:
             sed -i "s/^ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/" "${filename}"
             echo "Updated ${filename} to ${{ env.NEW_VERSION }}"
           else
-            echo "Error: WordPress file '${filename}' defined in inputs but not found."
+            echo "Error: WordPress file '${filename}' not found."
             exit 1
           fi
 
