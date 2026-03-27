@@ -109,3 +109,5 @@ jobs:
           commit_message: 'chore: bump version to ${{env.NEW_VERSION}}'
           commit_options: '--no-verify'  # Bypass pre-commit hooks.
           tag_name: '${{env.NEW_VERSION}}'
+          skip_dirty_check: true  # Run even if no files changed.
+          create_empty_commit: true  # Create a commit even if no files changed.
