@@ -9,16 +9,31 @@ on:
         required: false
         type: boolean
         default: false
+      package_json_dir:
+        description: 'Optional. The dir where package.json is located.'
+        required: false
+        type: string
+        default: ''
       style_css:
         description: 'Should the version be updated in style.css.'
         required: false
         type: boolean
         default: false
+      style_css_dir:
+        description: 'Optional. The dir where style.css is located.'
+        required: false
+        type: string
+        default: ''
       wp_plugin_file:
         description: 'Should the version be updated in the WordPress plugin PHP file (i.e. repo-name.php).'
         required: false
         type: boolean
         default: false
+      wp_plugin_file_dir:
+        description: 'Optional. The dir where WordPress plugin file is located.'
+        required: false
+        type: string
+        default: ''
     outputs:
       new_version:
         description: "The calculated semantic version"
@@ -73,8 +88,8 @@ jobs:
         if: ${{ true == inputs.package_json }}
         run: |
           if [ -f package.json ]; then
-            jq '.version = "${{env.NEW_VERSION}}"' package.json > package.json.tmp && mv package.json.tmp package.json
-            echo "Updated package.json to ${{env.NEW_VERSION}}"
+            jq '.version = "${{env.NEW_VERSION}}"' "${package_json_dir}package.json" > package.json.tmp && mv package.json.tmp "${package_json_dir}package.json"
+            echo "Updated package.json with version ${{env.NEW_VERSION}}"
           else
             echo "Error: package.json not found."
             exit 1
@@ -84,8 +99,8 @@ jobs:
         if: ${{ true == inputs.style_css }}
         run: |
           if [ -f style.css ]; then
-            sed -i "s/^ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/" style.css
-            echo "Updated style.css to ${{env.NEW_VERSION}}"
+            sed -i "s/^ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/" "${style_css_dir}style.css"
+            echo "Updated style.css with version ${{env.NEW_VERSION}}"
           else
             echo "Error: style.css not found."
             exit 1
@@ -95,9 +110,10 @@ jobs:
         if: ${{ true == inputs.wp_plugin_file }}
         run: |
           filename="$(echo ${{ github.repository }} | cut -d'/' -f2).php"
+          $file="${wp_plugin_file_dir}${filename}"
           if [ -f "${filename}" ]; then
-            sed -i "s/^ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/" "${filename}"
-            echo "Updated ${filename} to ${{ env.NEW_VERSION }}"
+            sed -i "s/^ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/" "${file}"
+            echo "Updated ${file} with version ${{ env.NEW_VERSION }}"
           else
             echo "Error: WordPress file '${filename}' not found."
             exit 1
@@ -109,4 +125,4 @@ jobs:
           commit_message: 'chore: bump version to ${{env.NEW_VERSION}}'
           commit_options: '--no-verify'  # Bypass pre-commit hooks.
           tag_name: '${{env.NEW_VERSION}}'
-          skip_dirty_check: true  # Run even if no files changed.
+          skip_dirty_check: true  # Commit even if no files changed.
