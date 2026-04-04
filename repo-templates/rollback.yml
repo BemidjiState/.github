@@ -1,0 +1,60 @@
+name: Rollback
+
+# =============================================================================
+# Manual rollback workflow.
+#
+# Triggered manually from the Actions tab. Select the environment and type
+# the ref to roll back to (tag, branch name, or commit SHA).
+#
+# To see available refs for this package run on the server:
+#   hq status {package}
+#
+# The environment list below must match the location environment names
+# configured for this package in /data/hq/config.json exactly. The check
+# endpoint validates this on every run and fails immediately if they are
+# out of sync — update both this list and HQ_ENVIRONMENTS repository
+# variable together whenever environments change.
+#
+# If this package does not use all six environments, remove the ones that
+# do not apply from the options list and from HQ_ENVIRONMENTS.
+#
+# Environment access:
+#   bsu-dev / ntc-dev     — any developer with repository access
+#   all others            — MERGE_APPROVAL_TEAM members only
+#                           (enforced by GitHub Environment protection rules)
+#
+# All rollback logic lives in the shared hq-rollback.yml workflow.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        required: true
+        type: choice
+        options:
+          - bsu-dev
+          - bsu-prod
+          - bsu-staging
+          - ntc-dev
+          - ntc-prod
+          - ntc-staging
+      ref:
+        description: >
+          Ref to roll back to — tag, branch name, or commit SHA.
+          Run on the server to see available refs:
+          hq status {package}
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    uses: BemidjiState/.github/.github/workflows/hq-rollback.yml@1
+    with:
+      package:           ${{ vars.HQ_PACKAGE }}
+      environment:       ${{ inputs.environment }}
+      ref:               ${{ inputs.ref }}
+      yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+    secrets:
+      hmac_secret:       ${{ secrets.HQ_HMAC_SECRET }}

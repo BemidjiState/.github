@@ -1,0 +1,30 @@
+name: HQ Sign Payload
+description: >
+  Signs a JSON payload with HMAC-SHA256 for HQ webhook endpoint authentication.
+  Produces the value for the X-Hub-Signature-256 header required by all HQ
+  webhook endpoints (deploy, rollback, check/health, check/deployment).
+
+inputs:
+  payload:
+    description: JSON payload string to sign
+    required: true
+  secret:
+    description: HMAC secret — must match DEPLOY_HMAC_SECRET on the server
+    required: true
+
+outputs:
+  signature:
+    description: sha256={hex} — value for the X-Hub-Signature-256 header
+    value: ${{ steps.sign.outputs.signature }}
+
+runs:
+  using: composite
+  steps:
+    - name: Sign payload
+      id: sign
+      shell: bash
+      run: |
+        SIG="sha256=$(printf '%s' '${{ inputs.payload }}' | \
+          openssl dgst -sha256 -hmac '${{ inputs.secret }}' | \
+          awk '{print $2}')"
+        echo "signature=${SIG}" >> "${GITHUB_OUTPUT}"

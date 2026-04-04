@@ -1,0 +1,105 @@
+name: Deploy (Automatic)
+
+# =============================================================================
+# Automatic push-based deployment workflow.
+#
+# Triggers on push to main    → production environments
+# Triggers on push to release → staging environments
+#
+# HOW TO CONFIGURE THIS FILE:
+# ----------------------------
+# 1. Uncomment the job blocks for the environments this package deploys to.
+# 2. Set the environment: value in each job to match the location environment
+#    name configured for this package in /data/hq/config.json exactly.
+# 3. Remove job blocks for environments that do not apply to this package.
+# 4. If this package uses non-standard branch mapping (e.g. a branch other
+#    than main triggers production), update the if: condition on the relevant
+#    job block. This is rare and should be cleaned up over time.
+#
+# KEEP IN SYNC:
+# The environment names used here must match:
+#   - The options list in deploy-manual.yml and rollback.yml
+#   - The HQ_ENVIRONMENTS repository variable
+#   - The location environment names in /data/hq/config.json
+# The check endpoint validates this on every run.
+#
+# No polling for push-based deploys — commit status is updated by the server
+# when the deployment completes. Check the commit status on this commit in
+# GitHub to confirm the outcome.
+# =============================================================================
+
+on:
+  push:
+    branches:
+      - main
+      - release
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Push to main → bsu-prod
+  # Uncomment and set environment: to the correct production environment name.
+  # ---------------------------------------------------------------------------
+
+  # deploy-bsu-prod:
+  #   if: github.ref_name == 'main'
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
+  #   with:
+  #     package:           ${{ vars.HQ_PACKAGE }}
+  #     environment:       bsu-prod
+  #     ref:               ${{ github.sha }}
+  #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+  #     poll_for_result:   false
+  #   secrets:
+  #     hmac_secret:       ${{ secrets.HQ_HMAC_SECRET }}
+
+  # ---------------------------------------------------------------------------
+  # Push to release → bsu-staging
+  # Uncomment and set environment: to the correct staging environment name.
+  # ---------------------------------------------------------------------------
+
+  # deploy-bsu-staging:
+  #   if: github.ref_name == 'release'
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
+  #   with:
+  #     package:           ${{ vars.HQ_PACKAGE }}
+  #     environment:       bsu-staging
+  #     ref:               ${{ github.sha }}
+  #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+  #     poll_for_result:   false
+  #   secrets:
+  #     hmac_secret:       ${{ secrets.HQ_HMAC_SECRET }}
+
+  # ---------------------------------------------------------------------------
+  # Push to main → ntc-prod
+  # Remove this block if this package does not deploy to NTC.
+  # ---------------------------------------------------------------------------
+
+  # deploy-ntc-prod:
+  #   if: github.ref_name == 'main'
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
+  #   with:
+  #     package:           ${{ vars.HQ_PACKAGE }}
+  #     environment:       ntc-prod
+  #     ref:               ${{ github.sha }}
+  #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+  #     poll_for_result:   false
+  #   secrets:
+  #     hmac_secret:       ${{ secrets.HQ_HMAC_SECRET }}
+
+  # ---------------------------------------------------------------------------
+  # Push to release → ntc-staging
+  # Remove this block if this package does not deploy to NTC.
+  # ---------------------------------------------------------------------------
+
+  # deploy-ntc-staging:
+  #   if: github.ref_name == 'release'
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
+  #   with:
+  #     package:           ${{ vars.HQ_PACKAGE }}
+  #     environment:       ntc-staging
+  #     ref:               ${{ github.sha }}
+  #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+  #     poll_for_result:   false
+  #   secrets:
+  #     hmac_secret:       ${{ secrets.HQ_HMAC_SECRET }}
