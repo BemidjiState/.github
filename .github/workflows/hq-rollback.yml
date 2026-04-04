@@ -1,0 +1,258 @@
+name: HQ Rollback
+
+# =============================================================================
+# Shared reusable rollback workflow for git-delivery packages.
+# Called by rollback.yml in individual repositories.
+#
+# Version: 1.0.0
+# Repo:    BemidjiState/.github
+# =============================================================================
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: Package name — must match a key in /data/hq/config.json
+        required: true
+        type: string
+      environment:
+        description: Environment to roll back
+        required: true
+        type: string
+      ref:
+        description: Ref to roll back to — tag, branch, or commit SHA
+        required: true
+        type: string
+      yaml_environments:
+        description: >
+          JSON array of all environments declared in the calling repo's
+          HQ_ENVIRONMENTS repository variable
+        required: true
+        type: string
+    secrets:
+      hmac_secret:
+        description: HQ_HMAC_SECRET — must match DEPLOY_HMAC_SECRET on the server
+        required: true
+
+# =============================================================================
+# Environment variables shared across all jobs
+# =============================================================================
+
+env:
+  API_BASE:   https://api.bemidjistate.edu/hq
+  README_URL: https://github.com/BemidjiState/.github/blob/main/README.md
+
+# =============================================================================
+# Jobs
+# =============================================================================
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Job 1: validate
+  # Verifies HMAC secret, checks health, validates package/environment,
+  # and displays current deployment status showing what is active and
+  # what will be rolled back to.
+  # ---------------------------------------------------------------------------
+
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Verify HQ_HMAC_SECRET is configured
+        run: |
+          if [ -z "${{ secrets.hmac_secret }}" ]; then
+            echo "::error::HQ_HMAC_SECRET is not configured on this repository."
+            echo ""
+            echo "Fix: Repository → Settings → Secrets and variables → Actions → New repository secret"
+            echo "     Name:  HQ_HMAC_SECRET"
+            echo "     Value: (same as DEPLOY_HMAC_SECRET on the server)"
+            echo ""
+            echo "For setup instructions see: ${{ env.README_URL }}"
+            exit 1
+          fi
+
+      - name: Check infrastructure health
+        run: |
+          PAYLOAD='{}'
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
+
+          HTTP_CODE=$(curl -s -o /tmp/health_response.json -w "%{http_code}" \
+            -X POST "${{ env.API_BASE }}/check/health/" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: ${SIG}" \
+            -d "${PAYLOAD}" \
+            --connect-timeout 10 \
+            --max-time 30)
+
+          if [ "${HTTP_CODE}" = "000" ] || [ "${HTTP_CODE}" = "502" ] || [ "${HTTP_CODE}" = "503" ]; then
+            echo "::error::Health check endpoint unreachable (HTTP ${HTTP_CODE}). Cannot safely proceed with rollback."
+            echo "For troubleshooting see: ${{ env.README_URL }}"
+            exit 1
+          elif [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::Health check returned unexpected HTTP ${HTTP_CODE}."
+            cat /tmp/health_response.json
+            exit 1
+          fi
+
+          STATUS=$(jq -r '.status' /tmp/health_response.json)
+
+          if [ "${STATUS}" = "fail" ]; then
+            echo "::error::Health check failed. Cannot safely proceed with rollback."
+            echo ""
+            jq -r '.checks | to_entries[] | select(.value.status == "fail") | "  \(.key)  FAIL  \(.value.message // "")"' \
+              /tmp/health_response.json
+            echo ""
+            TROUBLESHOOTING=$(jq -r '.troubleshooting // ""' /tmp/health_response.json)
+            if [ -n "${TROUBLESHOOTING}" ]; then
+              echo "For troubleshooting see: ${TROUBLESHOOTING}"
+            else
+              echo "For troubleshooting see: ${{ env.README_URL }}"
+            fi
+            exit 1
+          fi
+
+          echo "Health check passed."
+
+      - name: Validate package and environment
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg     package      "${{ inputs.package }}" \
+            --arg     environment  "${{ inputs.environment }}" \
+            --argjson envs         '${{ inputs.yaml_environments }}' \
+            '{package: $package, environment: $environment, yaml_environments: $envs}')
+
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
+
+          HTTP_CODE=$(curl -s -o /tmp/check_response.json -w "%{http_code}" \
+            -X POST "${{ env.API_BASE }}/check/deployment/" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: ${SIG}" \
+            -d "${PAYLOAD}" \
+            --connect-timeout 10 \
+            --max-time 30)
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::Deployment check endpoint returned HTTP ${HTTP_CODE}."
+            cat /tmp/check_response.json
+            exit 1
+          fi
+
+          VALID=$(jq -r '.data.valid' /tmp/check_response.json)
+
+          if [ "${VALID}" != "true" ]; then
+            echo "::error::Validation failed for package '${{ inputs.package }}'."
+            echo ""
+            jq -r '.data.environments | to_entries[] | select(.value.status != "match") |
+              "  \(.key)  [\(.value.status)]  \(.value.message // "")"' \
+              /tmp/check_response.json
+            echo ""
+            jq -r '.data.messages[]' /tmp/check_response.json
+            exit 1
+          fi
+
+          echo "Package and environment are valid."
+
+      - name: Display current deployment status
+        run: |
+          PACKAGE="${{ inputs.package }}"
+          ENV="${{ inputs.environment }}"
+          TARGET_REF="${{ inputs.ref }}"
+
+          echo "────────────────────────────────────────────────────────────"
+          echo "Rollback — ${PACKAGE} / ${ENV}"
+          echo "────────────────────────────────────────────────────────────"
+
+          LOCATION=$(jq -r --arg env "${ENV}" '.data.locations[$env] // empty' \
+            /tmp/check_response.json)
+
+          if [ -z "${LOCATION}" ] || [ "$(echo "${LOCATION}" | jq -r '.active_ref')" = "null" ]; then
+            echo "  Current:      Not yet deployed"
+          else
+            ACTIVE_REF=$(echo "${LOCATION}" | jq -r '.active_ref // "unknown"')
+            SHA=$(echo "${LOCATION}" | jq -r '.sha // "unknown"')
+            DEPLOYED_AT=$(echo "${LOCATION}" | jq -r '.deployed_at // "unknown"')
+            DEPLOYED_BY=$(echo "${LOCATION}" | jq -r '.deployed_by // "unknown"')
+
+            echo "  Current:      ${ACTIVE_REF} (${SHA})  ${DEPLOYED_AT}  ${DEPLOYED_BY}"
+          fi
+
+          echo "  Rolling back to: ${TARGET_REF}"
+          echo "────────────────────────────────────────────────────────────"
+
+  # ---------------------------------------------------------------------------
+  # Job 2: rollback
+  # Depends on validate. References the GitHub environment by name so
+  # environment protection rules apply here — production/staging environments
+  # require WS_MERGE_APPROVAL_TEAM approval, dev passes immediately.
+  # ---------------------------------------------------------------------------
+
+  rollback:
+    name: Rollback
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sign rollback payload
+        id: sign
+        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1
+        with:
+          payload: >-
+            {"package":"${{ inputs.package }}",
+             "environment":"${{ inputs.environment }}",
+             "ref":"${{ inputs.ref }}",
+             "sender":{"login":"${{ github.actor }}"}}
+          secret: ${{ secrets.hmac_secret }}
+
+      - name: Send rollback webhook
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg package     "${{ inputs.package }}" \
+            --arg environment "${{ inputs.environment }}" \
+            --arg ref         "${{ inputs.ref }}" \
+            --arg sender      "${{ github.actor }}" \
+            '{package: $package, environment: $environment, ref: $ref,
+              sender: {login: $sender}}')
+
+          HTTP_CODE=$(curl -s -o /tmp/rollback_response.json -w "%{http_code}" \
+            -X POST "${{ env.API_BASE }}/rollback/" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.signature }}" \
+            -d "${PAYLOAD}" \
+            --connect-timeout 10 \
+            --max-time 120)
+
+          if [ "${HTTP_CODE}" = "200" ]; then
+            echo "Rollback completed successfully."
+            echo ""
+            echo "────────────────────────────────────────────────────────────"
+            echo "Rollback result — ${{ inputs.package }} / ${{ inputs.environment }}"
+            echo "────────────────────────────────────────────────────────────"
+            jq -r '.data | to_entries[] |
+              "  \(.key):  active=\(.value.active // "unknown")  source=\(.value.source // "unknown")"' \
+              /tmp/rollback_response.json 2>/dev/null || \
+              jq '.' /tmp/rollback_response.json
+            echo "────────────────────────────────────────────────────────────"
+          elif [ "${HTTP_CODE}" = "409" ]; then
+            echo "::error::Rollback could not proceed — a deployment is currently in progress (HTTP 409)."
+            echo "Wait for the active deployment to complete, then retry the rollback."
+            exit 1
+          elif [ "${HTTP_CODE}" = "403" ]; then
+            echo "::error::HMAC verification failed (HTTP 403). The HQ_HMAC_SECRET does not match DEPLOY_HMAC_SECRET on the server."
+            exit 1
+          else
+            echo "::error::Rollback failed (HTTP ${HTTP_CODE})."
+            cat /tmp/rollback_response.json
+            exit 1
+          fi

@@ -1,0 +1,51 @@
+name: Deploy (Manual)
+
+# =============================================================================
+# Manual deployment workflow.
+#
+# Triggered manually from the Actions tab. Select the target environment
+# from the dropdown. GitHub's native branch picker selects the branch to deploy.
+#
+# The environment list below must match the location environment names
+# configured for this package in /data/hq/config.json exactly. The check
+# endpoint validates this on every run and fails immediately if they are
+# out of sync — update both this list and HQ_ENVIRONMENTS repository
+# variable together whenever environments change.
+#
+# If this package does not use all six environments, remove the ones that
+# do not apply from the options list and from HQ_ENVIRONMENTS.
+#
+# Environment access:
+#   bsu-dev / ntc-dev     — any developer with repository access
+#   all others            — MERGE_APPROVAL_TEAM members only
+#                           (enforced by GitHub Environment protection rules)
+#
+# All deployment logic lives in the shared hq-deploy.yml workflow.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - bsu-dev
+          - bsu-prod
+          - bsu-staging
+          - ntc-dev
+          - ntc-prod
+          - ntc-staging
+
+jobs:
+  deploy:
+    uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
+    with:
+      package:           ${{ vars.HQ_PACKAGE }}
+      environment:       ${{ inputs.environment }}
+      ref:               ${{ github.ref_name }}
+      yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+      poll_for_result:   true
+    secrets:
+      hmac_secret:       ${{ secrets.HQ_HMAC_SECRET }}

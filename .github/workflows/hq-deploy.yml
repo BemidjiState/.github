@@ -1,0 +1,455 @@
+name: HQ Deploy
+
+# =============================================================================
+# Shared reusable deploy workflow for git-delivery packages.
+# Called by deploy-auto.yml and deploy-manual.yml in individual repositories.
+#
+# Version: 1.0.0
+# Repo:    BemidjiState/.github
+# =============================================================================
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: Package name — must match a key in /data/hq/config.json
+        required: true
+        type: string
+      environment:
+        description: Target environment name
+        required: true
+        type: string
+      ref:
+        description: Branch, tag, or commit SHA to deploy
+        required: true
+        type: string
+      yaml_environments:
+        description: >
+          JSON array of all environments declared in the calling repo's
+          HQ_ENVIRONMENTS repository variable e.g. ["bsu-dev","bsu-prod"]
+        required: true
+        type: string
+      poll_for_result:
+        description: >
+          Whether to poll the check endpoint for deployment confirmation.
+          Set true for manual deploys where a human is watching.
+          Set false for automatic push-based deploys.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      hmac_secret:
+        description: HQ_HMAC_SECRET — must match DEPLOY_HMAC_SECRET on the server
+        required: true
+
+# =============================================================================
+# Environment variables shared across all jobs
+# =============================================================================
+
+env:
+  API_BASE:   https://api.bemidjistate.edu/hq
+  README_URL: https://github.com/BemidjiState/.github/blob/main/README.md
+
+# =============================================================================
+# Jobs
+# =============================================================================
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Job 1: validate
+  # Runs before the environment gate. Verifies HMAC secret is configured,
+  # calls /github/check/health/ and /github/check/deployment/, displays
+  # current deployment status, and captures the previous ref for rollback.
+  # ---------------------------------------------------------------------------
+
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    outputs:
+      previous_ref: ${{ steps.status.outputs.previous_ref }}
+      previous_sha: ${{ steps.status.outputs.previous_sha }}
+
+    steps:
+
+      - name: Verify HQ_HMAC_SECRET is configured
+        run: |
+          if [ -z "${{ secrets.hmac_secret }}" ]; then
+            echo "::error::HQ_HMAC_SECRET is not configured on this repository."
+            echo ""
+            echo "Fix: Repository → Settings → Secrets and variables → Actions → New repository secret"
+            echo "     Name:  HQ_HMAC_SECRET"
+            echo "     Value: (same as DEPLOY_HMAC_SECRET on the server)"
+            echo ""
+            echo "For setup instructions see: ${{ env.README_URL }}"
+            exit 1
+          fi
+
+      - name: Check infrastructure health
+        id: health
+        run: |
+          PAYLOAD='{}'
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
+
+          HTTP_CODE=$(curl -s -o /tmp/health_response.json -w "%{http_code}" \
+            -X POST "${{ env.API_BASE }}/check/health/" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: ${SIG}" \
+            -d "${PAYLOAD}" \
+            --connect-timeout 10 \
+            --max-time 30 || echo "000")
+
+          if [ "${HTTP_CODE}" = "000" ] || [ "${HTTP_CODE}" = "502" ] || [ "${HTTP_CODE}" = "503" ]; then
+            echo "::warning::Health check endpoint unreachable (HTTP ${HTTP_CODE}). Proceeding — deployment may still succeed."
+            echo "reachable=false" >> "${GITHUB_OUTPUT}"
+          elif [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::Health check returned unexpected HTTP ${HTTP_CODE}."
+            cat /tmp/health_response.json
+            exit 1
+          else
+            STATUS=$(jq -r '.status' /tmp/health_response.json)
+            echo "reachable=true" >> "${GITHUB_OUTPUT}"
+
+            if [ "${STATUS}" = "fail" ]; then
+              echo "::error::Health check failed. One or more infrastructure checks did not pass."
+              echo ""
+              jq -r '.checks | to_entries[] | select(.value.status == "fail") | "  \(.key)  FAIL  \(.value.message // "")"' \
+                /tmp/health_response.json
+              echo ""
+              TROUBLESHOOTING=$(jq -r '.troubleshooting // ""' /tmp/health_response.json)
+              if [ -n "${TROUBLESHOOTING}" ]; then
+                echo "For troubleshooting see: ${TROUBLESHOOTING}"
+              else
+                echo "For troubleshooting see: ${{ env.README_URL }}"
+              fi
+              exit 1
+            fi
+
+            echo "Health check passed."
+          fi
+
+      - name: Validate deployment configuration
+        id: check
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg     package      "${{ inputs.package }}" \
+            --arg     environment  "${{ inputs.environment }}" \
+            --argjson envs         '${{ inputs.yaml_environments }}' \
+            '{package: $package, environment: $environment, yaml_environments: $envs}')
+
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
+
+          HTTP_CODE=$(curl -s -o /tmp/check_response.json -w "%{http_code}" \
+            -X POST "${{ env.API_BASE }}/check/deployment/" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: ${SIG}" \
+            -d "${PAYLOAD}" \
+            --connect-timeout 10 \
+            --max-time 30)
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::Deployment check endpoint returned HTTP ${HTTP_CODE}."
+            cat /tmp/check_response.json
+            exit 1
+          fi
+
+          VALID=$(jq -r '.data.valid' /tmp/check_response.json)
+
+          if [ "${VALID}" != "true" ]; then
+            echo "::error::Deployment validation failed for package '${{ inputs.package }}'."
+            echo ""
+            jq -r '.data.environments | to_entries[] | select(.value.status != "match") |
+              "  \(.key)  [\(.value.status)]  \(.value.message // "")"' \
+              /tmp/check_response.json
+            echo ""
+            jq -r '.data.messages[]' /tmp/check_response.json
+            exit 1
+          fi
+
+          echo "Deployment configuration is valid."
+
+      - name: Display current deployment status
+        id: status
+        run: |
+          PACKAGE="${{ inputs.package }}"
+          ENV="${{ inputs.environment }}"
+
+          echo "────────────────────────────────────────────────────────────"
+          echo "Current deployment status — ${PACKAGE} / ${ENV}"
+          echo "────────────────────────────────────────────────────────────"
+
+          LOCATION=$(jq -r --arg env "${ENV}" '.data.locations[$env] // empty' \
+            /tmp/check_response.json)
+
+          if [ -z "${LOCATION}" ] || [ "$(echo "${LOCATION}" | jq -r '.active_ref')" = "null" ]; then
+            echo "  Not yet deployed to this environment."
+            echo "previous_ref=" >> "${GITHUB_OUTPUT}"
+            echo "previous_sha=" >> "${GITHUB_OUTPUT}"
+          else
+            ACTIVE_REF=$(echo "${LOCATION}" | jq -r '.active_ref // "unknown"')
+            SHA=$(echo "${LOCATION}" | jq -r '.sha // "unknown"')
+            DEPLOYED_AT=$(echo "${LOCATION}" | jq -r '.deployed_at // "unknown"')
+            DEPLOYED_BY=$(echo "${LOCATION}" | jq -r '.deployed_by // "unknown"')
+            VERSIONED=$(echo "${LOCATION}" | jq -r '.versioned // false')
+
+            echo "  Active ref:   ${ACTIVE_REF}"
+            echo "  SHA:          ${SHA}"
+            echo "  Deployed at:  ${DEPLOYED_AT}"
+            echo "  Deployed by:  ${DEPLOYED_BY}"
+
+            if [ "${VERSIONED}" = "true" ]; then
+              AVAILABLE=$(echo "${LOCATION}" | jq -r '.available // [] | .[]' 2>/dev/null)
+              if [ -n "${AVAILABLE}" ]; then
+                echo ""
+                echo "  Available releases:"
+                echo "${AVAILABLE}" | head -5 | while IFS= read -r rel; do
+                  MARKER=""
+                  if [ "${rel}" = "${ACTIVE_REF}" ] || echo "${rel}" | grep -q "${SHA}"; then
+                    MARKER="  [active]"
+                  fi
+                  echo "    ${rel}${MARKER}"
+                done
+              fi
+            fi
+
+            echo "previous_ref=${ACTIVE_REF}" >> "${GITHUB_OUTPUT}"
+            echo "previous_sha=${SHA}" >> "${GITHUB_OUTPUT}"
+          fi
+
+          echo "────────────────────────────────────────────────────────────"
+
+  # ---------------------------------------------------------------------------
+  # Job 2: deploy
+  # Depends on validate. References the GitHub environment by name so
+  # environment protection rules apply here. Signs and POSTs the deploy
+  # payload, then optionally polls for confirmation.
+  #
+  # Access control is enforced by GitHub Environment protection rules:
+  #   Dev environments      — any developer with repository access
+  #   All other environments — WS_MERGE_APPROVAL_TEAM members only
+  # ---------------------------------------------------------------------------
+
+  deploy:
+    name: Deploy
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sign deploy payload
+        id: sign
+        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1
+        with:
+          payload: >-
+            {"package":"${{ inputs.package }}",
+             "environment":"${{ inputs.environment }}",
+             "ref":"${{ inputs.ref }}",
+             "delivery":"git",
+             "sha":"${{ github.sha }}",
+             "sender":{"login":"${{ github.actor }}"}}
+          secret: ${{ secrets.hmac_secret }}
+
+      - name: Send deploy webhook
+        id: webhook
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg package     "${{ inputs.package }}" \
+            --arg environment "${{ inputs.environment }}" \
+            --arg ref         "${{ inputs.ref }}" \
+            --arg sha         "${{ github.sha }}" \
+            --arg sender      "${{ github.actor }}" \
+            '{package: $package, environment: $environment, ref: $ref,
+              delivery: "git", sha: $sha, sender: {login: $sender}}')
+
+          HTTP_CODE=$(curl -s -o /tmp/deploy_response.txt -w "%{http_code}" \
+            -X POST "${{ env.API_BASE }}/deploy/" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.signature }}" \
+            -d "${PAYLOAD}" \
+            --connect-timeout 10 \
+            --max-time 30)
+
+          if [ "${HTTP_CODE}" = "200" ]; then
+            echo "Deployment queued successfully."
+          elif [ "${HTTP_CODE}" = "403" ]; then
+            echo "::error::HMAC verification failed (HTTP 403). The HQ_HMAC_SECRET does not match DEPLOY_HMAC_SECRET on the server."
+            exit 1
+          elif [ "${HTTP_CODE}" = "400" ]; then
+            echo "::error::Deployment request rejected (HTTP 400):"
+            cat /tmp/deploy_response.txt
+            exit 1
+          else
+            echo "::error::Unexpected response from deploy endpoint (HTTP ${HTTP_CODE}):"
+            cat /tmp/deploy_response.txt
+            exit 1
+          fi
+
+      - name: Poll for deployment confirmation
+        if: ${{ inputs.poll_for_result == true }}
+        run: |
+          PACKAGE="${{ inputs.package }}"
+          ENV="${{ inputs.environment }}"
+          EXPECTED_SHA="${{ github.sha }}"
+          SHORT_SHA="${EXPECTED_SHA:0:7}"
+          TIMEOUT=60
+          ELAPSED=0
+          RETRY_COUNT=0
+          MAX_RETRIES=3
+
+          echo "Waiting for deployment confirmation..."
+
+          while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+
+            PAYLOAD=$(jq -n \
+              --arg     package      "${PACKAGE}" \
+              --arg     environment  "${ENV}" \
+              --argjson envs         '${{ inputs.yaml_environments }}' \
+              '{package: $package, environment: $environment, yaml_environments: $envs}')
+
+            SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+              openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+              awk '{print $2}')"
+
+            HTTP_CODE=$(curl -s -o /tmp/poll_response.json -w "%{http_code}" \
+              -X POST "${{ env.API_BASE }}/check/deployment/" \
+              -H "Content-Type: application/json" \
+              -H "X-Hub-Signature-256: ${SIG}" \
+              -d "${PAYLOAD}" \
+              --connect-timeout 10 \
+              --max-time 15 || echo "000")
+
+            if [ "${HTTP_CODE}" != "200" ]; then
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "  Check endpoint unreachable (HTTP ${HTTP_CODE}) — retry ${RETRY_COUNT}/${MAX_RETRIES}"
+
+              if [ "${RETRY_COUNT}" -ge "${MAX_RETRIES}" ]; then
+                echo ""
+                echo "::warning::Could not confirm deployment outcome."
+                echo "The check endpoint was unreachable during polling (HTTP ${HTTP_CODE})."
+                echo "The deployment may have succeeded or failed independently."
+                echo ""
+                echo "To verify manually:"
+                echo "  - Check the commit status on this commit in GitHub"
+                echo "  - Run: hq status ${PACKAGE} on the server"
+                echo "  - Check: /data/domains/api.bemidjistate.edu/hq/logs/deploy.log"
+                echo "  - Run: hq health"
+                echo ""
+                echo "For troubleshooting see: ${{ env.README_URL }}"
+                exit 0
+              fi
+              continue
+            fi
+
+            RETRY_COUNT=0
+            ACTIVE_REF=$(jq -r --arg env "${ENV}" \
+              '.data.locations[$env].sha // ""' /tmp/poll_response.json)
+
+            if [ "${ACTIVE_REF}" = "${SHORT_SHA}" ]; then
+              echo "  Deployment confirmed — active SHA is ${SHORT_SHA} (${ELAPSED}s)"
+              exit 0
+            fi
+
+            echo "  Still deploying... (${ELAPSED}s)"
+          done
+
+          echo "::error::Deployment confirmation timed out after ${TIMEOUT} seconds."
+          echo ""
+          echo "To verify manually:"
+          echo "  - Check the commit status on this commit in GitHub"
+          echo "  - Run: hq status ${PACKAGE} on the server"
+          echo "  - Check: /data/domains/api.bemidjistate.edu/hq/logs/deploy.log"
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # Job 3: rollback-on-failure
+  # Runs only if deploy failed AND the environment is not a dev environment.
+  # Dev environments are detected by the presence of -dev or -development
+  # anywhere in the environment name (e.g. bsu-dev, bsu-undergraduate-catalog-dev).
+  # Signs and POSTs a rollback payload using the previous ref captured in
+  # the validate job. Workflow is always marked as failed after rollback
+  # since the deployment itself failed.
+  # ---------------------------------------------------------------------------
+
+  rollback-on-failure:
+    name: Rollback on Failure
+    needs: [validate, deploy]
+    runs-on: ubuntu-latest
+    if: >-
+      failure() &&
+      needs.deploy.result == 'failure' &&
+      needs.validate.outputs.previous_ref != ''
+
+    steps:
+
+      - name: Check if environment is dev
+        id: env-check
+        run: |
+          ENV="${{ inputs.environment }}"
+          if echo "${ENV}" | grep -qE '\-(dev|development)(\-|$)'; then
+            echo "is_dev=true" >> "${GITHUB_OUTPUT}"
+            echo "Environment '${ENV}' is a dev environment — skipping automatic rollback."
+          else
+            echo "is_dev=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Checkout repository
+        if: steps.env-check.outputs.is_dev == 'false'
+        uses: actions/checkout@v4
+
+      - name: Sign rollback payload
+        id: sign
+        if: steps.env-check.outputs.is_dev == 'false'
+        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1
+        with:
+          payload: >-
+            {"package":"${{ inputs.package }}",
+             "environment":"${{ inputs.environment }}",
+             "ref":"${{ needs.validate.outputs.previous_ref }}",
+             "sender":{"login":"${{ github.actor }}"}}
+          secret: ${{ secrets.hmac_secret }}
+
+      - name: Send rollback webhook
+        if: steps.env-check.outputs.is_dev == 'false'
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg package     "${{ inputs.package }}" \
+            --arg environment "${{ inputs.environment }}" \
+            --arg ref         "${{ needs.validate.outputs.previous_ref }}" \
+            --arg sender      "${{ github.actor }}" \
+            '{package: $package, environment: $environment, ref: $ref,
+              sender: {login: $sender}}')
+
+          HTTP_CODE=$(curl -s -o /tmp/rollback_response.json -w "%{http_code}" \
+            -X POST "${{ env.API_BASE }}/rollback/" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.signature }}" \
+            -d "${PAYLOAD}" \
+            --connect-timeout 10 \
+            --max-time 120)
+
+          echo "Automatic rollback triggered for ${{ inputs.package }} / ${{ inputs.environment }}"
+          echo "Rolling back to: ${{ needs.validate.outputs.previous_ref }} (${{ needs.validate.outputs.previous_sha }})"
+          echo ""
+
+          if [ "${HTTP_CODE}" = "200" ]; then
+            echo "Rollback completed successfully."
+            jq -r '.data | to_entries[] | "  \(.key): \(.value.active // "unknown")"' \
+              /tmp/rollback_response.json 2>/dev/null || true
+          elif [ "${HTTP_CODE}" = "409" ]; then
+            echo "::warning::Rollback could not proceed — another deployment is in progress (HTTP 409)."
+            echo "Manual intervention may be required."
+          else
+            echo "::error::Rollback failed (HTTP ${HTTP_CODE}). Manual intervention required."
+            cat /tmp/rollback_response.json
+          fi
