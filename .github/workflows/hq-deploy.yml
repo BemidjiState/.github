@@ -89,7 +89,10 @@ jobs:
       - name: Check infrastructure health
         id: health
         run: |
-          PAYLOAD='{}'
+          PAYLOAD=$(jq -n \
+            --arg package "${{ inputs.package }}" \
+            '{package: $package}')
+
           SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
             openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
             awk '{print $2}')"
@@ -110,6 +113,13 @@ jobs:
             cat /tmp/health_response.json
             exit 1
           else
+            if ! jq -e . /tmp/health_response.json >/dev/null 2>&1; then
+              echo "::error::Health check returned an invalid JSON response (HTTP ${HTTP_CODE}). This usually indicates a server-side error masking as a successful response."
+              echo "Raw server output:"
+              cat /tmp/health_response.json
+              exit 1
+            fi
+
             STATUS=$(jq -r '.status' /tmp/health_response.json)
             echo "reachable=true" >> "${GITHUB_OUTPUT}"
 
@@ -158,16 +168,23 @@ jobs:
             exit 1
           fi
 
-          VALID=$(jq -r '.data.valid' /tmp/check_response.json)
+          if ! jq -e . /tmp/check_response.json >/dev/null 2>&1; then
+            echo "::error::Deployment check returned an invalid JSON response (HTTP ${HTTP_CODE}). This usually indicates a server-side error masking as a successful response."
+            echo "Raw server output:"
+            cat /tmp/check_response.json
+            exit 1
+          fi
+
+          VALID=$(jq -r '.valid // "false"' /tmp/check_response.json)
 
           if [ "${VALID}" != "true" ]; then
             echo "::error::Deployment validation failed for package '${{ inputs.package }}'."
             echo ""
-            jq -r '.data.environments | to_entries[] | select(.value.status != "match") |
+            jq -r '(.environments // {}) | to_entries[] | select(.value.status != "match") |
               "  \(.key)  [\(.value.status)]  \(.value.message // "")"' \
               /tmp/check_response.json
             echo ""
-            jq -r '.data.messages[]' /tmp/check_response.json
+            jq -r '(.messages // []) | .[]' /tmp/check_response.json
             exit 1
           fi
 
@@ -183,7 +200,7 @@ jobs:
           echo "Current deployment status — ${PACKAGE} / ${ENV}"
           echo "────────────────────────────────────────────────────────────"
 
-          LOCATION=$(jq -r --arg env "${ENV}" '.data.locations[$env] // empty' \
+          LOCATION=$(jq -r --arg env "${ENV}" '(.locations // {})[$env] // empty' \
             /tmp/check_response.json)
 
           if [ -z "${LOCATION}" ] || [ "$(echo "${LOCATION}" | jq -r '.active_ref')" = "null" ]; then
@@ -247,7 +264,7 @@ jobs:
 
       - name: Sign deploy payload
         id: sign
-        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1
+        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1.0.4
         with:
           payload: >-
             {"package":"${{ inputs.package }}",
@@ -350,10 +367,15 @@ jobs:
               fi
               continue
             fi
+            
+            if ! jq -e . /tmp/poll_response.json >/dev/null 2>&1; then
+              echo "  Received invalid JSON from check endpoint — treating as unreachable."
+              continue
+            fi
 
             RETRY_COUNT=0
             ACTIVE_REF=$(jq -r --arg env "${ENV}" \
-              '.data.locations[$env].sha // ""' /tmp/poll_response.json)
+              '(.locations // {})[$env].sha // ""' /tmp/poll_response.json)
 
             if [ "${ACTIVE_REF}" = "${SHORT_SHA}" ]; then
               echo "  Deployment confirmed — active SHA is ${SHORT_SHA} (${ELAPSED}s)"
@@ -410,7 +432,7 @@ jobs:
       - name: Sign rollback payload
         id: sign
         if: steps.env-check.outputs.is_dev == 'false'
-        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1
+        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1.0.4
         with:
           payload: >-
             {"package":"${{ inputs.package }}",
@@ -444,7 +466,7 @@ jobs:
 
           if [ "${HTTP_CODE}" = "200" ]; then
             echo "Rollback completed successfully."
-            jq -r '.data | to_entries[] | "  \(.key): \(.value.active // "unknown")"' \
+            jq -r '(.locations // {}) | to_entries[] | "  \(.key): \(.value.active // "unknown")"' \
               /tmp/rollback_response.json 2>/dev/null || true
           elif [ "${HTTP_CODE}" = "409" ]; then
             echo "::warning::Rollback could not proceed — another deployment is in progress (HTTP 409)."
