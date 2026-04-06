@@ -49,6 +49,7 @@ on:
 env:
   API_BASE:   https://api.bemidjistate.edu/hq
   README_URL: https://github.com/BemidjiState/.github/blob/main/README.md
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # =============================================================================
 # Jobs
@@ -89,7 +90,7 @@ jobs:
       - name: Check infrastructure health
         id: health
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg package "${{ inputs.package }}" \
             '{package: $package}')
 
@@ -144,7 +145,7 @@ jobs:
       - name: Validate deployment configuration
         id: check
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg     package      "${{ inputs.package }}" \
             --arg     environment  "${{ inputs.environment }}" \
             --argjson envs         '${{ inputs.yaml_environments }}' \
@@ -262,23 +263,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Sign deploy payload
-        id: sign
-        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1.0.4
-        with:
-          payload: >-
-            {"package":"${{ inputs.package }}",
-             "environment":"${{ inputs.environment }}",
-             "ref":"${{ inputs.ref }}",
-             "delivery":"git",
-             "sha":"${{ github.sha }}",
-             "sender":{"login":"${{ github.actor }}"}}
-          secret: ${{ secrets.hmac_secret }}
-
       - name: Send deploy webhook
         id: webhook
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg package     "${{ inputs.package }}" \
             --arg environment "${{ inputs.environment }}" \
             --arg ref         "${{ inputs.ref }}" \
@@ -287,10 +275,14 @@ jobs:
             '{package: $package, environment: $environment, ref: $ref,
               delivery: "git", sha: $sha, sender: {login: $sender}}')
 
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
+
           HTTP_CODE=$(curl -s -o /tmp/deploy_response.txt -w "%{http_code}" \
             -X POST "${{ env.API_BASE }}/deploy/" \
             -H "Content-Type: application/json" \
-            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.signature }}" \
+            -H "X-Hub-Signature-256: ${SIG}" \
             -d "${PAYLOAD}" \
             --connect-timeout 10 \
             --max-time 30)
@@ -328,7 +320,7 @@ jobs:
             sleep 5
             ELAPSED=$((ELAPSED + 5))
 
-            PAYLOAD=$(jq -n \
+            PAYLOAD=$(jq -nc \
               --arg     package      "${PACKAGE}" \
               --arg     environment  "${ENV}" \
               --argjson envs         '${{ inputs.yaml_environments }}' \
@@ -429,22 +421,10 @@ jobs:
         if: steps.env-check.outputs.is_dev == 'false'
         uses: actions/checkout@v4
 
-      - name: Sign rollback payload
-        id: sign
-        if: steps.env-check.outputs.is_dev == 'false'
-        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1.0.4
-        with:
-          payload: >-
-            {"package":"${{ inputs.package }}",
-             "environment":"${{ inputs.environment }}",
-             "ref":"${{ needs.validate.outputs.previous_ref }}",
-             "sender":{"login":"${{ github.actor }}"}}
-          secret: ${{ secrets.hmac_secret }}
-
       - name: Send rollback webhook
         if: steps.env-check.outputs.is_dev == 'false'
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg package     "${{ inputs.package }}" \
             --arg environment "${{ inputs.environment }}" \
             --arg ref         "${{ needs.validate.outputs.previous_ref }}" \
@@ -452,10 +432,14 @@ jobs:
             '{package: $package, environment: $environment, ref: $ref,
               sender: {login: $sender}}')
 
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
+
           HTTP_CODE=$(curl -s -o /tmp/rollback_response.json -w "%{http_code}" \
             -X POST "${{ env.API_BASE }}/rollback/" \
             -H "Content-Type: application/json" \
-            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.signature }}" \
+            -H "X-Hub-Signature-256: ${SIG}" \
             -d "${PAYLOAD}" \
             --connect-timeout 10 \
             --max-time 120)
