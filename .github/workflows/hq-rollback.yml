@@ -206,7 +206,7 @@ jobs:
 
       - name: Sign rollback payload
         id: sign
-        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1.0.4
+        uses: BemidjiState/.github/actions/hq-sign-payload@1.0.4
         with:
           payload: >-
             {"package":"${{ inputs.package }}",

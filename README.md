@@ -24,14 +24,14 @@ This is a special repository used for GitHub organisation features and shared Gi
 ```
 BemidjiState/.github/
 ├── .github/
-│   ├── workflows/
-│   │   ├── branch-protection-warning.yml  # Enforces release → main merge flow
-│   │   ├── version-increment.yml          # Semantic versioning and tagging
-│   │   ├── hq-deploy.yml                  # HQ shared deploy workflow
-│   │   └── hq-rollback.yml                # HQ shared rollback workflow
-│   └── actions/
-│       └── hq-sign-payload/
-│           └── action.yml                 # HQ HMAC payload signing action
+│   └── workflows/
+│       ├── branch-protection-warning.yml  # Enforces release → main merge flow
+│       ├── version-increment.yml          # Semantic versioning and tagging
+│       ├── hq-deploy.yml                  # HQ shared deploy workflow
+│       └── hq-rollback.yml                # HQ shared rollback workflow
+├── actions/
+│   └── hq-sign-payload/
+│       └── action.yml                     # HQ HMAC payload signing action
 ├── profile/
 │   └── README.md                          # Organisation profile page
 ├── repo-templates/
