@@ -455,7 +455,12 @@ jobs:
           elif [ "${HTTP_CODE}" = "409" ]; then
             echo "::warning::Rollback could not proceed — another deployment is in progress (HTTP 409)."
             echo "Manual intervention may be required."
+            exit 1
+          elif [ "${HTTP_CODE}" = "403" ]; then
+            echo "::error::Rollback HMAC verification failed (HTTP 403). The HQ_HMAC_SECRET does not match DEPLOY_HMAC_SECRET on the server."
+            exit 1
           else
             echo "::error::Rollback failed (HTTP ${HTTP_CODE}). Manual intervention required."
             cat /tmp/rollback_response.json
+            exit 1
           fi
