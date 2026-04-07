@@ -45,8 +45,6 @@ permissions:
 jobs:
   versioning:
     runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.use_version.outputs.NEW_VERSION }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -66,18 +64,18 @@ jobs:
       - name: Update the version in project files
         uses: ./.github/actions/update-version-files
         with:
-          version: ${{ steps.versioning.outputs.new_version }}
+          version: ${{ steps.calculate-version.outputs.new_version }}
           package_json: ${{ inputs.package_json }}
           package_json_dir: ${{ inputs.package_json_dir }}
           sytle: ${{ inputs.style_css }}
-          sytle_dir: ${{ inputs.package_sytle_css_dir }}
+          sytle_dir: ${{ inputs.style_css_dir }}
           wp_plugin_file: ${{ inputs.wp_plugin_file }}
-          wp_plugin_file_dir: ${{ inputs.package_wp_plugin_file_dir }}
+          wp_plugin_file_dir: ${{ inputs.wp_plugin_file_dir }}
 
       - name: Commit version file changes and create tag
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
-          commit_message: 'chore: bump version to ${{ steps.versioning.outputs.new_version }}'
+          commit_message: 'chore: bump version to ${{ steps.calculate-version.outputs.new_version }}'
           commit_options: '--no-verify'  # Bypass pre-commit hooks.
-          tag_name: '${{ steps.versioning.outputs.new_version }}'
+          tag_name: '${{ steps.calculate-version.outputs.new_version }}'
           skip_dirty_check: true  # Commit even if no files changed.
