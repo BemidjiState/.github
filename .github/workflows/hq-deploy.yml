@@ -360,18 +360,27 @@ jobs:
               fi
               continue
             fi
-            
+
             if ! jq -e . /tmp/poll_response.json >/dev/null 2>&1; then
               echo "  Received invalid JSON from check endpoint — treating as unreachable."
               continue
             fi
 
             RETRY_COUNT=0
-            ACTIVE_REF=$(jq -r --arg env "${ENV}" \
+            ACTIVE_SHA=$(jq -r --arg env "${ENV}" \
               '(.locations // {})[$env].sha // ""' /tmp/poll_response.json)
+            DEPLOYED_AT=$(jq -r --arg env "${ENV}" \
+              '(.locations // {})[$env].deployed_at // ""' /tmp/poll_response.json)
 
-            if [ "${ACTIVE_REF}" = "${SHORT_SHA}" ]; then
-              echo "  Deployment confirmed — active SHA is ${SHORT_SHA} (${ELAPSED}s)"
+            # Convert deployed_at ISO 8601 to epoch for comparison.
+            DEPLOYED_EPOCH=0
+            if [ -n "${DEPLOYED_AT}" ]; then
+              DEPLOYED_EPOCH=$(date -d "${DEPLOYED_AT}" +%s 2>/dev/null || \
+                date -j -f "%Y-%m-%dT%H:%M:%S%z" "${DEPLOYED_AT}" +%s 2>/dev/null || echo "0")
+            fi
+
+            if [ "${ACTIVE_SHA:0:7}" = "${SHORT_SHA}" ] && [ "${DEPLOYED_EPOCH}" -gt "${STARTED_AT}" ]; then
+              echo "  Deployment confirmed — active SHA is ${SHORT_SHA}, deployed at ${DEPLOYED_AT} (${ELAPSED}s)"
               exit 0
             fi
 
