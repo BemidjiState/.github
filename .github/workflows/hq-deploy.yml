@@ -271,9 +271,10 @@ jobs:
             --arg environment "${{ inputs.environment }}" \
             --arg ref         "${{ inputs.ref }}" \
             --arg sha         "${{ github.sha }}" \
+            --arg branch      "${{ github.ref_name }}" \
             --arg sender      "${{ github.actor }}" \
             '{package: $package, environment: $environment, ref: $ref,
-              delivery: "git", sha: $sha, sender: {login: $sender}}')
+              delivery: "git", sha: $sha, branch: $branch, sender: {login: $sender}}')
 
           SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
             openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
