@@ -1,0 +1,77 @@
+name: "Update Version Files"
+description: "Updates the version string in standard project files."
+
+inputs:
+  version:
+    description: "The new version string to apply."
+    required: true
+  package_json:
+    description: 'Update version in package.json.'
+    required: false
+    type: boolean
+    default: false
+  package_json_dir:
+    description: 'Optional. The dir where package.json is located.'
+    required: false
+    type: string
+    default: ''
+  style_css:
+    description: 'Update version in style.css.'
+    required: false
+    type: boolean
+    default: false
+  style_css_dir:
+    description: 'Optional. The dir where style.css is located.'
+    required: false
+    type: string
+    default: ''
+  wp_plugin_file:
+    description: 'Update version in the WordPress plugin file.'
+    required: false
+    type: boolean
+    default: false
+  wp_plugin_file_dir:
+    description: 'Optional. The dir where WordPress plugin file is located.'
+    required: false
+    type: string
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Update package.json
+      if: ${{ inputs.package_json == 'true' }}
+      shell: bash
+      run: |
+        file="${{ inputs.package_json_dir }}package.json"
+        if [ -f "$file" ]; then
+          jq '.version = "${{ inputs.version }}"' "$file" > package.json.tmp && mv package.json.tmp "$file"
+        else
+          echo "Error: package.json not found at $file."
+          exit 1
+        fi
+
+    - name: Update style.css
+      if: ${{ inputs.style_css == 'true' }}
+      shell: bash
+      run: |
+        file="${{ inputs.style_css_dir }}style.css"
+        if [ -f "$file" ]; then
+          sed -i "s/^ \* Version:.*/ * Version: ${{ inputs.version }}/" "$file"
+        else
+          echo "Error: style.css not found at $file."
+          exit 1
+        fi
+
+    - name: Update the WordPress plugin file
+      if: ${{ inputs.wp_plugin_file == 'true' }}
+      shell: bash
+      run: |
+        filename="$(echo ${{ github.repository }} | cut -d'/' -f2).php"
+        file="${{ inputs.wp_plugin_file_dir }}$filename"
+        if [ -f "$file" ]; then
+          sed -i "s/^ \* Version:.*/ * Version: ${{ inputs.version }}/" "$file"
+        else
+          echo "Error: WordPress file '$file' not found."
+          exit 1
+        fi

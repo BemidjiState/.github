@@ -1,11 +1,14 @@
-name: "Calculate Semantic Version and Create Tag"
-description: "Automatically calculate a new semantic version string based on conventional commit messages. Updates specified files with the current version, commits them, and adds a tag."
+name: "Calculate Semantic Version, update files, and Create Tag"
+description: >
+  Calculates a new semantic version string based on conventional commits.
+  Updates standard project files with the current version, commits them, and
+  adds a tag.
 
 on:
   workflow_call:
     inputs:
       package_json:
-        description: 'Should the version be updated in package.json.'
+        description: 'Update version in package.json.'
         required: false
         type: boolean
         default: false
@@ -15,7 +18,7 @@ on:
         type: string
         default: ''
       style_css:
-        description: 'Should the version be updated in style.css.'
+        description: 'Update version in style.css.'
         required: false
         type: boolean
         default: false
@@ -25,7 +28,7 @@ on:
         type: string
         default: ''
       wp_plugin_file:
-        description: 'Should the version be updated in the WordPress plugin PHP file (i.e. repo-name.php).'
+        description: 'Update version in the WordPress plugin file.'
         required: false
         type: boolean
         default: false
@@ -34,10 +37,6 @@ on:
         required: false
         type: string
         default: ''
-    outputs:
-      new_version:
-        description: "The calculated semantic version"
-        value: ${{ jobs.versioning.outputs.new_version }}
 
 # Write access to the repo is needed to commit and add a tag.
 permissions:
@@ -64,65 +63,21 @@ jobs:
           create_tag: false  # A tag will be created at the last step.
           tag_prefix: ""
 
-      # Make VERSION_STRING available to other steps in this reusable workflow.
-      - name: Use version
-        id: use_version
-        env:
-          VERSION_STRING: ${{ steps.calculate-version.outputs.version-string }}
-        run: |
-          if [ -z "$VERSION_STRING" ]; then
-            echo "Error: a version was not calculated."
-            echo "Debugging:"
-            echo "Last 5 tags:"
-            git tag -n5
-            echo "Last commit message:"
-            git log -1 --pretty=%B
-            exit 1
-          else
-            echo "Calculated version: $VERSION_STRING"
-            echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_ENV
-            echo "NEW_VERSION=$VERSION_STRING" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Update version in package.json
-        if: ${{ true == inputs.package_json }}
-        run: |
-          if [ -f package.json ]; then
-            jq '.version = "${{env.NEW_VERSION}}"' "${package_json_dir}package.json" > package.json.tmp && mv package.json.tmp "${package_json_dir}package.json"
-            echo "Updated package.json with version ${{env.NEW_VERSION}}"
-          else
-            echo "Error: package.json not found."
-            exit 1
-          fi
-
-      - name: Update version in style.css
-        if: ${{ true == inputs.style_css }}
-        run: |
-          if [ -f style.css ]; then
-            sed -i "s/^ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/" "${style_css_dir}style.css"
-            echo "Updated style.css with version ${{env.NEW_VERSION}}"
-          else
-            echo "Error: style.css not found."
-            exit 1
-          fi
-
-      - name: Update version in the WordPress plugin file
-        if: ${{ true == inputs.wp_plugin_file }}
-        run: |
-          filename="$(echo ${{ github.repository }} | cut -d'/' -f2).php"
-          $file="${wp_plugin_file_dir}${filename}"
-          if [ -f "${filename}" ]; then
-            sed -i "s/^ \* Version:.*/ * Version: ${{env.NEW_VERSION}}/" "${file}"
-            echo "Updated ${file} with version ${{ env.NEW_VERSION }}"
-          else
-            echo "Error: WordPress file '${filename}' not found."
-            exit 1
-          fi
+      - name: Update the version in project files
+        uses: ./.github/actions/update-version-files
+        with:
+          version: ${{ steps.versioning.outputs.new_version }}
+          package_json: ${{ inputs.package_json }}
+          package_json_dir: ${{ inputs.package_json_dir }}
+          sytle: ${{ inputs.style_css }}
+          sytle_dir: ${{ inputs.package_sytle_css_dir }}
+          wp_plugin_file: ${{ inputs.wp_plugin_file }}
+          wp_plugin_file_dir: ${{ inputs.package_wp_plugin_file_dir }}
 
       - name: Commit version file changes and create tag
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
-          commit_message: 'chore: bump version to ${{env.NEW_VERSION}}'
+          commit_message: 'chore: bump version to ${{ steps.versioning.outputs.new_version }}'
           commit_options: '--no-verify'  # Bypass pre-commit hooks.
-          tag_name: '${{env.NEW_VERSION}}'
+          tag_name: '${{ steps.versioning.outputs.new_version }}'
           skip_dirty_check: true  # Commit even if no files changed.
