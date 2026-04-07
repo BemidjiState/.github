@@ -40,7 +40,7 @@ on:
 
 jobs:
   deploy:
-    uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
+    uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1.0.4
     with:
       package:           ${{ vars.HQ_PACKAGE }}
       environment:       ${{ inputs.environment }}

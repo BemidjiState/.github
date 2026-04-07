@@ -49,6 +49,7 @@ on:
 env:
   API_BASE:   https://api.bemidjistate.edu/hq
   README_URL: https://github.com/BemidjiState/.github/blob/main/README.md
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # =============================================================================
 # Jobs
@@ -89,7 +90,7 @@ jobs:
       - name: Check infrastructure health
         id: health
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg package "${{ inputs.package }}" \
             '{package: $package}')
 
@@ -144,7 +145,7 @@ jobs:
       - name: Validate deployment configuration
         id: check
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg     package      "${{ inputs.package }}" \
             --arg     environment  "${{ inputs.environment }}" \
             --argjson envs         '${{ inputs.yaml_environments }}' \
@@ -175,16 +176,16 @@ jobs:
             exit 1
           fi
 
-          VALID=$(jq -r '.data.valid' /tmp/check_response.json)
+          VALID=$(jq -r '.valid // "false"' /tmp/check_response.json)
 
           if [ "${VALID}" != "true" ]; then
             echo "::error::Deployment validation failed for package '${{ inputs.package }}'."
             echo ""
-            jq -r '.data.environments | to_entries[] | select(.value.status != "match") |
+            jq -r '(.environments // {}) | to_entries[] | select(.value.status != "match") |
               "  \(.key)  [\(.value.status)]  \(.value.message // "")"' \
               /tmp/check_response.json
             echo ""
-            jq -r '.data.messages[]' /tmp/check_response.json
+            jq -r '(.messages // []) | .[]' /tmp/check_response.json
             exit 1
           fi
 
@@ -200,7 +201,7 @@ jobs:
           echo "Current deployment status — ${PACKAGE} / ${ENV}"
           echo "────────────────────────────────────────────────────────────"
 
-          LOCATION=$(jq -r --arg env "${ENV}" '.data.locations[$env] // empty' \
+          LOCATION=$(jq -r --arg env "${ENV}" '(.locations // {})[$env] // empty' \
             /tmp/check_response.json)
 
           if [ -z "${LOCATION}" ] || [ "$(echo "${LOCATION}" | jq -r '.active_ref')" = "null" ]; then
@@ -262,35 +263,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Sign deploy payload
-        id: sign
-        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1
-        with:
-          payload: >-
-            {"package":"${{ inputs.package }}",
-             "environment":"${{ inputs.environment }}",
-             "ref":"${{ inputs.ref }}",
-             "delivery":"git",
-             "sha":"${{ github.sha }}",
-             "sender":{"login":"${{ github.actor }}"}}
-          secret: ${{ secrets.hmac_secret }}
-
       - name: Send deploy webhook
         id: webhook
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg package     "${{ inputs.package }}" \
             --arg environment "${{ inputs.environment }}" \
             --arg ref         "${{ inputs.ref }}" \
             --arg sha         "${{ github.sha }}" \
+            --arg branch      "${{ github.ref_name }}" \
             --arg sender      "${{ github.actor }}" \
             '{package: $package, environment: $environment, ref: $ref,
-              delivery: "git", sha: $sha, sender: {login: $sender}}')
+              delivery: "git", sha: $sha, branch: $branch, sender: {login: $sender}}')
+
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
 
           HTTP_CODE=$(curl -s -o /tmp/deploy_response.txt -w "%{http_code}" \
             -X POST "${{ env.API_BASE }}/deploy/" \
             -H "Content-Type: application/json" \
-            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.signature }}" \
+            -H "X-Hub-Signature-256: ${SIG}" \
             -d "${PAYLOAD}" \
             --connect-timeout 10 \
             --max-time 30)
@@ -317,7 +310,8 @@ jobs:
           ENV="${{ inputs.environment }}"
           EXPECTED_SHA="${{ github.sha }}"
           SHORT_SHA="${EXPECTED_SHA:0:7}"
-          TIMEOUT=60
+          STARTED_AT=$(date -u +%s)
+          TIMEOUT=10
           ELAPSED=0
           RETRY_COUNT=0
           MAX_RETRIES=3
@@ -328,7 +322,7 @@ jobs:
             sleep 5
             ELAPSED=$((ELAPSED + 5))
 
-            PAYLOAD=$(jq -n \
+            PAYLOAD=$(jq -nc \
               --arg     package      "${PACKAGE}" \
               --arg     environment  "${ENV}" \
               --argjson envs         '${{ inputs.yaml_environments }}' \
@@ -367,18 +361,27 @@ jobs:
               fi
               continue
             fi
-            
+
             if ! jq -e . /tmp/poll_response.json >/dev/null 2>&1; then
               echo "  Received invalid JSON from check endpoint — treating as unreachable."
               continue
             fi
 
             RETRY_COUNT=0
-            ACTIVE_REF=$(jq -r --arg env "${ENV}" \
-              '.data.locations[$env].sha // ""' /tmp/poll_response.json)
+            ACTIVE_SHA=$(jq -r --arg env "${ENV}" \
+              '(.locations // {})[$env].sha // ""' /tmp/poll_response.json)
+            DEPLOYED_AT=$(jq -r --arg env "${ENV}" \
+              '(.locations // {})[$env].deployed_at // ""' /tmp/poll_response.json)
 
-            if [ "${ACTIVE_REF}" = "${SHORT_SHA}" ]; then
-              echo "  Deployment confirmed — active SHA is ${SHORT_SHA} (${ELAPSED}s)"
+            # Convert deployed_at ISO 8601 to epoch for comparison.
+            DEPLOYED_EPOCH=0
+            if [ -n "${DEPLOYED_AT}" ]; then
+              DEPLOYED_EPOCH=$(date -d "${DEPLOYED_AT}" +%s 2>/dev/null || \
+                date -j -f "%Y-%m-%dT%H:%M:%S%z" "${DEPLOYED_AT}" +%s 2>/dev/null || echo "0")
+            fi
+
+            if [ "${ACTIVE_SHA:0:7}" = "${SHORT_SHA}" ] && [ "${DEPLOYED_EPOCH}" -gt "${STARTED_AT}" ]; then
+              echo "  Deployment confirmed — active SHA is ${SHORT_SHA}, deployed at ${DEPLOYED_AT} (${ELAPSED}s)"
               exit 0
             fi
 
@@ -429,22 +432,10 @@ jobs:
         if: steps.env-check.outputs.is_dev == 'false'
         uses: actions/checkout@v4
 
-      - name: Sign rollback payload
-        id: sign
-        if: steps.env-check.outputs.is_dev == 'false'
-        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1
-        with:
-          payload: >-
-            {"package":"${{ inputs.package }}",
-             "environment":"${{ inputs.environment }}",
-             "ref":"${{ needs.validate.outputs.previous_ref }}",
-             "sender":{"login":"${{ github.actor }}"}}
-          secret: ${{ secrets.hmac_secret }}
-
       - name: Send rollback webhook
         if: steps.env-check.outputs.is_dev == 'false'
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg package     "${{ inputs.package }}" \
             --arg environment "${{ inputs.environment }}" \
             --arg ref         "${{ needs.validate.outputs.previous_ref }}" \
@@ -452,10 +443,14 @@ jobs:
             '{package: $package, environment: $environment, ref: $ref,
               sender: {login: $sender}}')
 
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
+
           HTTP_CODE=$(curl -s -o /tmp/rollback_response.json -w "%{http_code}" \
             -X POST "${{ env.API_BASE }}/rollback/" \
             -H "Content-Type: application/json" \
-            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.signature }}" \
+            -H "X-Hub-Signature-256: ${SIG}" \
             -d "${PAYLOAD}" \
             --connect-timeout 10 \
             --max-time 120)
@@ -466,12 +461,17 @@ jobs:
 
           if [ "${HTTP_CODE}" = "200" ]; then
             echo "Rollback completed successfully."
-            jq -r '.data | to_entries[] | "  \(.key): \(.value.active // "unknown")"' \
+            jq -r '(.locations // {}) | to_entries[] | "  \(.key): \(.value.active // "unknown")"' \
               /tmp/rollback_response.json 2>/dev/null || true
           elif [ "${HTTP_CODE}" = "409" ]; then
             echo "::warning::Rollback could not proceed — another deployment is in progress (HTTP 409)."
             echo "Manual intervention may be required."
+            exit 1
+          elif [ "${HTTP_CODE}" = "403" ]; then
+            echo "::error::Rollback HMAC verification failed (HTTP 403). The HQ_HMAC_SECRET does not match DEPLOY_HMAC_SECRET on the server."
+            exit 1
           else
             echo "::error::Rollback failed (HTTP ${HTTP_CODE}). Manual intervention required."
             cat /tmp/rollback_response.json
+            exit 1
           fi

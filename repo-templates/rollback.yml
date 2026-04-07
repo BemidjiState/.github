@@ -50,7 +50,7 @@ on:
 
 jobs:
   rollback:
-    uses: BemidjiState/.github/.github/workflows/hq-rollback.yml@1
+    uses: BemidjiState/.github/.github/workflows/hq-rollback.yml@1.0.4
     with:
       package:           ${{ vars.HQ_PACKAGE }}
       environment:       ${{ inputs.environment }}
