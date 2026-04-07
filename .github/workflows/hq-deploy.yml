@@ -309,7 +309,8 @@ jobs:
           ENV="${{ inputs.environment }}"
           EXPECTED_SHA="${{ github.sha }}"
           SHORT_SHA="${EXPECTED_SHA:0:7}"
-          TIMEOUT=60
+          STARTED_AT=$(date -u +%s)
+          TIMEOUT=10
           ELAPSED=0
           RETRY_COUNT=0
           MAX_RETRIES=3
