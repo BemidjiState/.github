@@ -4,7 +4,6 @@ name: HQ Deploy
 # Shared reusable deploy workflow for git-delivery packages.
 # Called by deploy-auto.yml and deploy-manual.yml in individual repositories.
 #
-# Version: 1.0.0
 # Repo:    BemidjiState/.github
 # =============================================================================
 

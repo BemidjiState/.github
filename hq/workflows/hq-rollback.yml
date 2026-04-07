@@ -4,7 +4,6 @@ name: HQ Rollback
 # Shared reusable rollback workflow for git-delivery packages.
 # Called by rollback.yml in individual repositories.
 #
-# Version: 1.0.0
 # Repo:    BemidjiState/.github
 # =============================================================================
 
@@ -49,8 +48,7 @@ env:
 jobs:
 
   # ---------------------------------------------------------------------------
-  # Job 1: validate
-  # Verifies HMAC secret, checks health, validates package/environment,
+  # Verify HMAC secret, checks health, validates package/environment,
   # and displays current deployment status showing what is active and
   # what will be rolled back to.
   # ---------------------------------------------------------------------------
@@ -187,7 +185,6 @@ jobs:
           echo "────────────────────────────────────────────────────────────"
 
   # ---------------------------------------------------------------------------
-  # Job 2: rollback
   # Depends on validate. References the GitHub environment by name so
   # environment protection rules apply here — production/staging environments
   # require WS_MERGE_APPROVAL_TEAM approval, dev passes immediately.
@@ -206,7 +203,7 @@ jobs:
 
       - name: Sign rollback payload
         id: sign
-        uses: BemidjiState/.github/actions/hq-sign-payload@1.0.4
+        uses: BemidjiState/.github/hq/actions/hq-sign-payload
         with:
           payload: >-
             {"package":"${{ inputs.package }}",
