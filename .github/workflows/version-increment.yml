@@ -58,7 +58,7 @@ jobs:
       - name: Extract Reusable Workflow Version
         id: get-ref
         run: |
-          WORKFLOW_REF="${{ github.workflow_ref }}"
+          WORKFLOW_REF="${{ github.job_workflow_ref }}"
           echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout central actions
