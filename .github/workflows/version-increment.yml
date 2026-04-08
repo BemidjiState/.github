@@ -60,6 +60,8 @@ jobs:
         run: |
           WORKFLOW_REF="${{ github.job_workflow_ref }}"
           echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
+          echo '===zzzz==='
+          echo "$ref";
 
       - name: Checkout central actions
         uses: actions/checkout@v6
