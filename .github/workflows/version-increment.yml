@@ -62,7 +62,7 @@ jobs:
           tag_prefix: ""
 
       - name: Update the version in project files
-        uses: ./.github/.github/actions/version-update-files
+        uses: ./.github/actions/version-update-files
         with:
           version: ${{ steps.calculate-version.outputs.version-string }}
           package_json: ${{ inputs.package_json }}
