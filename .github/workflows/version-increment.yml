@@ -52,23 +52,31 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      # Gets the version @ref (e.g. @1.0.7) that was used when calling this
-      # workflow. It will be used for cloning the repo and using composite
-      # actions.
-      - name: Extract Reusable Workflow Version
-        id: get-ref
-        run: |
-          WORKFLOW_REF="${{ github.job_workflow_ref }}"
-          echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
-          echo '===zzzz==='
-          echo "$ref";
+      - name: Generate GitHub App Token
+        id: generate-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.BSU_BUILDER_APP_ID }}
+          private-key: ${{ secrets.BSU_BUILDER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Get workflow version
+        id: workflow-version
+        uses: canonical/get-workflow-version-action@v1
+        with:
+          # Repository where reusable workflow is located
+          repository-name: canonical/data-platform-workflows
+          # Name of reusable workflow
+          file-name: version-increment.yml
+          # Only required for private repositories
+          github-token: ${{ steps.generate-token.outputs.token }}
 
       - name: Checkout central actions
         uses: actions/checkout@v6
         with:
           repository: BemidjiState/.github
           # Use the extracted output to target the exact tag/branch
-          ref: ${{ steps.get-ref.outputs.ref }}
+          ref: ${{ steps.workflow-version.outputs.sha }}
           path: dot-github-org-repo
 
       - name: Calculate version
@@ -90,6 +98,10 @@ jobs:
           style_css_dir: ${{ inputs.style_css_dir }}
           wp_plugin_file: ${{ inputs.wp_plugin_file }}
           wp_plugin_file_dir: ${{ inputs.wp_plugin_file_dir }}
+
+      - name: Cleanup reusable workflow/action repository
+        run: |
+          rm -rf dot-github-org-repo
 
       - name: Commit version file changes and create tag
         uses: stefanzweifel/git-auto-commit-action@v7
