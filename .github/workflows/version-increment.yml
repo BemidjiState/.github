@@ -52,6 +52,23 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # Gets the version @ref (e.g. @1.0.7) that was used when calling this
+      # workflow. It will be used for cloning the repo and using composite
+      # actions.
+      - name: Extract Reusable Workflow Version
+        id: get-ref
+        run: |
+          WORKFLOW_REF="${{ github.workflow_ref }}"
+          echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout central actions
+        uses: actions/checkout@v6
+        with:
+          repository: BemidjiState/.github
+          # Use the extracted output to target the exact tag/branch
+          ref: ${{ steps.get-ref.outputs.ref }}
+          path: dot-github-org-repo
+
       - name: Calculate version
         id: calculate-version
         uses: bitshifted/git-auto-semver@v2
@@ -62,13 +79,13 @@ jobs:
           tag_prefix: ""
 
       - name: Update the version in project files
-        uses: ./.github/actions/version-update-files
+        uses: ./dot-github-org-repo/.github/actions/version-update-files
         with:
           version: ${{ steps.calculate-version.outputs.version-string }}
           package_json: ${{ inputs.package_json }}
           package_json_dir: ${{ inputs.package_json_dir }}
-          style: ${{ inputs.style_css }}
-          style_dir: ${{ inputs.style_css_dir }}
+          style_css: ${{ inputs.style_css }}
+          style_css_dir: ${{ inputs.style_css_dir }}
           wp_plugin_file: ${{ inputs.wp_plugin_file }}
           wp_plugin_file_dir: ${{ inputs.wp_plugin_file_dir }}
 
