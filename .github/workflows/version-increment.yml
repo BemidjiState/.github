@@ -1,8 +1,7 @@
 name: "Calculate Semantic Version, update files, and Create Tag"
 description: >
-  Calculates a new semantic version string based on conventional commits.
-  Updates standard project files with the current version, commits them, and
-  adds a tag.
+  Calculates a new semantic version based on conventional commits. Updates
+  standard project files with the current version, commits them, and adds a tag.
 
 on:
   workflow_call:
