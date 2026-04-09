@@ -47,11 +47,6 @@ jobs:
   versioning:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
 
       - name: Generate GitHub App Token
         id: generate-token
@@ -60,6 +55,13 @@ jobs:
           app-id: ${{ vars.BSU_BUILDER_APP_ID }}
           private-key: ${{ secrets.BSU_BUILDER_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.generate-token.outputs.token }}
 
       - name: Get workflow version
         id: workflow-version
