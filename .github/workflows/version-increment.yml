@@ -44,6 +44,8 @@ permissions:
 
 jobs:
   versioning:
+    permissions:
+      actions: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
