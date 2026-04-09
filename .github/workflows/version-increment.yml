@@ -62,6 +62,20 @@ jobs:
           private-key: ${{ secrets.BSU_BUILDER_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
+      - name: Setup Git authentication for internal dependencies
+        run: |
+          # Store the token in .netrc so Git can securely authenticate.
+          cat << EOF > ~/.netrc
+          machine github.com
+          login x-access-token
+          password ${{ steps.generate-token.outputs.token }}
+          EOF
+          chmod 600 ~/.netrc
+
+          # Map SSH URLs to use HTTPS for BemidjiState repos.
+          git config --global url."https://github.com/BemidjiState".insteadOf "ssh://git@github.com/BemidjiState"
+          git config --global url."https://github.com/BemidjiState".insteadOf "git@github.com:BemidjiState"
+
       - name: Get workflow version
         id: workflow-version
         uses: canonical/get-workflow-version-action@v1
