@@ -41,6 +41,7 @@ on:
 # Write access to the repo is needed to commit and add a tag.
 permissions:
   contents: write
+  actions: read
 
 jobs:
   versioning:
