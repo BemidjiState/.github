@@ -67,7 +67,7 @@ jobs:
         uses: canonical/get-workflow-version-action@v1
         with:
           # Repository where reusable workflow is located
-          repository-name: BemidjiState/.github
+          repository-name: BemidjiState/.github/workflows/
           # Name of reusable workflow
           file-name: version-increment.yml
           # Only required for private repositories
