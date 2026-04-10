@@ -6,6 +6,12 @@ description: >
 on:
   workflow_call:
     inputs:
+      auth_app_id:
+        description: 'A GitHub app ID, for private repo auth.'
+        required: true  # Needed for composite action.
+      auth_app_key:
+        description: 'A GitHub app private key, for private repo auth.'
+        required: true  # Needed for composite action.
       package_json:
         description: 'Update version in package.json.'
         required: false
@@ -53,12 +59,12 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Generate GitHub App Token
+      - name: Generate a Temporary GitHub App Token
         id: generate-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.ORG__BSU_RELEASE_BOT_APP_ID }}
-          private-key: ${{ secrets.ORG__BSU_RELEASE_BOT_PRIV_KEY }}
+          app-id: ${{ inputs.auth_app_id }}
+          private-key: ${{ inputs.auth_app_key }}
           owner: ${{ github.repository_owner }}
 
       - name: Get workflow version
