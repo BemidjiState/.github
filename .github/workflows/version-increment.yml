@@ -83,10 +83,9 @@ jobs:
           # Only required for private repositories
           github-token: ${{ steps.generate-token.outputs.token }}
 
+      # Check out the .github repo for using composite actions with a relative
+      # version. This way it does not need to be hard coded.
       - name: Checkout central actions
-        description: >
-          Check out the .github repo for using composite actions witha relative
-          version. This way it does not need to be hard coded.
         uses: actions/checkout@v6
         with:
           repository: BemidjiState/.github
