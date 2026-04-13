@@ -1,5 +1,8 @@
 # This workflow is for simple repos that do not use release artifacts.
 # It simply updates a version in files and commits the changes with a tag.
+#
+# Repos that make use of releases should update version withinin release
+# artifacts rather than directly in committed files.
 
 name: "Calculate semantic version, update files, and create tag"
 description: >
@@ -62,6 +65,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      # App requirements:
+      #   - content read/write
+      #   - actions read
       - name: Generate a Temporary GitHub App Token
         id: generate-token
         uses: actions/create-github-app-token@v3
