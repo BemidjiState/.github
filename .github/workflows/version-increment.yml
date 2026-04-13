@@ -5,13 +5,19 @@ description: >
 
 on:
   workflow_call:
-    inputs:
+
+    # App ID / key are needed when the caller workflow is in a private repo.
+    secrets:
       auth_app_id:
-        description: 'A GitHub app ID, for private repo auth.'
-        required: true  # Needed for composite action.
+        description: A GitHub app ID.
+        required: false
+        default: ''
       auth_app_key:
-        description: 'A GitHub app private key, for private repo auth.'
-        required: true  # Needed for composite action.
+        description: A GitHub app private key.
+        required: false
+        default: ''
+
+    inputs:
       package_json:
         description: 'Update version in package.json.'
         required: false
@@ -42,6 +48,7 @@ on:
         required: false
         type: string
         default: ''
+
 
 # Write access to the repo is needed to commit and add a tag.
 permissions:
@@ -79,6 +86,9 @@ jobs:
           github-token: ${{ steps.generate-token.outputs.token }}
 
       - name: Checkout central actions
+        description: >
+          Check out the .github repo for using composite actions witha relative
+          version. This way it does not need to be hard coded.
         uses: actions/checkout@v6
         with:
           repository: BemidjiState/.github
