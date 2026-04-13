@@ -1,10 +1,27 @@
-name: "Calculate Semantic Version, update files, and Create Tag"
+# This workflow is for simple repos that do not use release artifacts.
+# It simply updates a version in files and commits the changes with a tag.
+#
+# Repos that make use of releases should update version withinin release
+# artifacts rather than directly in committed files.
+
+name: "Calculate semantic version, update files, and create tag"
 description: >
   Calculates a new semantic version based on conventional commits. Updates
   standard project files with the current version, commits them, and adds a tag.
 
 on:
   workflow_call:
+
+    # Secrets are needed for the final commit. An app is used which is in
+    # the bypass list, set to exempt, in GitHub rule sets.
+    secrets:
+      auth_app_id:
+        description: A GitHub app ID.
+        required: true
+      auth_app_key:
+        description: A GitHub app private key.
+        required: true
+
     inputs:
       package_json:
         description: 'Update version in package.json.'
@@ -37,6 +54,7 @@ on:
         type: string
         default: ''
 
+
 # Write access to the repo is needed to commit and add a tag.
 permissions:
   contents: write
@@ -47,19 +65,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      # App requirements:
+      #   - content read/write
+      #   - actions read
+      - name: Generate a Temporary GitHub App Token
+        id: generate-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.auth_app_id }}
+          private-key: ${{ secrets.auth_app_key }}
+          owner: ${{ github.repository_owner }}
+
+      # Token is used here so that when commit is run, the app token is used for
+      # authentication.
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-
-      - name: Generate GitHub App Token
-        id: generate-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.BSU_BUILDER_APP_ID }}
-          private-key: ${{ secrets.BSU_BUILDER_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
+          token: ${{ steps.generate-token.outputs.token }}
 
       - name: Get workflow version
         id: workflow-version
@@ -72,6 +96,8 @@ jobs:
           # Only required for private repositories
           github-token: ${{ steps.generate-token.outputs.token }}
 
+      # Check out the .github repo for using composite actions with a relative
+      # version. This way it does not need to be hard coded.
       - name: Checkout central actions
         uses: actions/checkout@v6
         with:
@@ -107,7 +133,7 @@ jobs:
       - name: Commit version file changes and create tag
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
-          commit_message: 'chore: bump version to ${{ steps.calculate-version.outputs.version-string }}'
+          commit_message: 'chore: bump version to ${{ steps.calculate-version.outputs.version-string }} [skip ci]'
           commit_options: '--no-verify'  # Bypass pre-commit hooks.
           tag_name: '${{ steps.calculate-version.outputs.version-string }}'
           skip_dirty_check: true  # Commit even if no files changed.
