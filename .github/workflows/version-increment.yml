@@ -63,8 +63,8 @@ jobs:
         id: generate-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ inputs.auth_app_id }}
-          private-key: ${{ inputs.auth_app_key }}
+          app-id: ${{ secrets.auth_app_id }}
+          private-key: ${{ secrets.auth_app_key }}
           owner: ${{ github.repository_owner }}
 
       - name: Get workflow version
