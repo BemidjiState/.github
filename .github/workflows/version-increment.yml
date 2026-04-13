@@ -11,11 +11,9 @@ on:
       auth_app_id:
         description: A GitHub app ID.
         required: false
-        default: ''
       auth_app_key:
         description: A GitHub app private key.
         required: false
-        default: ''
 
     inputs:
       package_json:
