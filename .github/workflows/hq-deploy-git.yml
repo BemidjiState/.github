@@ -1,10 +1,11 @@
-name: HQ Deploy
+name: HQ Deploy (Git)
 
 # =============================================================================
 # Shared reusable deploy workflow for git-delivery packages.
-# Called by deploy-auto.yml and deploy-manual.yml in individual repositories.
+# Called by deploy-git-auto.yml and deploy-git-manual.yml in individual
+# repositories.
 #
-# Version: 1.0.0
+# Version: 1.0.11
 # Repo:    BemidjiState/.github
 # =============================================================================
 
@@ -245,7 +246,9 @@ jobs:
   # Job 2: deploy
   # Depends on validate. References the GitHub environment by name so
   # environment protection rules apply here. Signs and POSTs the deploy
-  # payload, then optionally polls for confirmation.
+  # payload, then optionally polls for confirmation up to 120 seconds.
+  #
+  # No checkout step — this job makes only an API call.
   #
   # Access control is enforced by GitHub Environment protection rules:
   #   Dev environments      — any developer with repository access
@@ -258,10 +261,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
 
-    steps:
+    outputs:
+      poll_outcome: ${{ steps.poll.outputs.outcome }}
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    steps:
 
       - name: Send deploy webhook
         id: webhook
@@ -304,6 +307,7 @@ jobs:
           fi
 
       - name: Poll for deployment confirmation
+        id: poll
         if: ${{ inputs.poll_for_result == true }}
         run: |
           PACKAGE="${{ inputs.package }}"
@@ -311,7 +315,7 @@ jobs:
           EXPECTED_SHA="${{ github.sha }}"
           SHORT_SHA="${EXPECTED_SHA:0:7}"
           STARTED_AT=$(date -u +%s)
-          TIMEOUT=10
+          TIMEOUT=60
           ELAPSED=0
           RETRY_COUNT=0
           MAX_RETRIES=3
@@ -319,8 +323,8 @@ jobs:
           echo "Waiting for deployment confirmation..."
 
           while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
-            sleep 5
-            ELAPSED=$((ELAPSED + 5))
+            sleep 10
+            ELAPSED=$((ELAPSED + 10))
 
             PAYLOAD=$(jq -nc \
               --arg     package      "${PACKAGE}" \
@@ -346,9 +350,8 @@ jobs:
 
               if [ "${RETRY_COUNT}" -ge "${MAX_RETRIES}" ]; then
                 echo ""
-                echo "::warning::Could not confirm deployment outcome."
-                echo "The check endpoint was unreachable during polling (HTTP ${HTTP_CODE})."
-                echo "The deployment may have succeeded or failed independently."
+                echo "::warning::Could not confirm deployment outcome — check endpoint unreachable (HTTP ${HTTP_CODE})."
+                echo "The deployment job was accepted by the server. Outcome is unknown."
                 echo ""
                 echo "To verify manually:"
                 echo "  - Check the commit status on this commit in GitHub"
@@ -357,6 +360,7 @@ jobs:
                 echo "  - Run: hq health"
                 echo ""
                 echo "For troubleshooting see: ${{ env.README_URL }}"
+                echo "outcome=timeout" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
               continue
@@ -382,28 +386,33 @@ jobs:
 
             if [ "${ACTIVE_SHA:0:7}" = "${SHORT_SHA}" ] && [ "${DEPLOYED_EPOCH}" -gt "${STARTED_AT}" ]; then
               echo "  Deployment confirmed — active SHA is ${SHORT_SHA}, deployed at ${DEPLOYED_AT} (${ELAPSED}s)"
+              echo "outcome=success" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
 
             echo "  Still deploying... (${ELAPSED}s)"
           done
 
-          echo "::error::Deployment confirmation timed out after ${TIMEOUT} seconds."
+          echo ""
+          echo "::warning::Deployment confirmation timed out after ${TIMEOUT} seconds."
+          echo "The deployment job was accepted by the server. Outcome is unknown."
           echo ""
           echo "To verify manually:"
           echo "  - Check the commit status on this commit in GitHub"
           echo "  - Run: hq status ${PACKAGE} on the server"
           echo "  - Check: /data/domains/api.bemidjistate.edu/hq/logs/deploy.log"
-          exit 1
+          echo ""
+          echo "For troubleshooting see: ${{ env.README_URL }}"
+          echo "outcome=timeout" >> "${GITHUB_OUTPUT}"
+          exit 0
 
   # ---------------------------------------------------------------------------
   # Job 3: rollback-on-failure
-  # Runs only if deploy failed AND the environment is not a dev environment.
-  # Dev environments are detected by the presence of -dev or -development
-  # anywhere in the environment name (e.g. bsu-dev, bsu-undergraduate-catalog-dev).
-  # Signs and POSTs a rollback payload using the previous ref captured in
-  # the validate job. Workflow is always marked as failed after rollback
-  # since the deployment itself failed.
+  # Runs only if the deploy job failed with a confirmed error — not on a poll
+  # timeout. A timeout means the server accepted the job but confirmation
+  # expired — outcome unknown, no rollback. Rollback only fires when the
+  # webhook itself returned an error (non-200) which is a confirmed failure.
+  # Dev environments are skipped — rollback is for staging and production only.
   # ---------------------------------------------------------------------------
 
   rollback-on-failure:
@@ -413,7 +422,8 @@ jobs:
     if: >-
       failure() &&
       needs.deploy.result == 'failure' &&
-      needs.validate.outputs.previous_ref != ''
+      needs.validate.outputs.previous_ref != '' &&
+      needs.deploy.outputs.poll_outcome != 'timeout'
 
     steps:
 
@@ -427,10 +437,6 @@ jobs:
           else
             echo "is_dev=false" >> "${GITHUB_OUTPUT}"
           fi
-
-      - name: Checkout repository
-        if: steps.env-check.outputs.is_dev == 'false'
-        uses: actions/checkout@v4
 
       - name: Send rollback webhook
         if: steps.env-check.outputs.is_dev == 'false'

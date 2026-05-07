@@ -45,7 +45,7 @@ jobs:
 
   # deploy-bsu-prod:
   #   if: github.ref_name == 'main'
-  #   uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1.0.9
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
   #   with:
   #     package:           ${{ vars.HQ_PACKAGE }}
   #     environment:       bsu-prod
@@ -61,7 +61,7 @@ jobs:
 
   # deploy-bsu-staging:
   #   if: github.ref_name == 'release'
-  #   uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1.0.9
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
   #   with:
   #     package:           ${{ vars.HQ_PACKAGE }}
   #     environment:       bsu-staging
@@ -78,7 +78,7 @@ jobs:
 
   # deploy-ntc-prod:
   #   if: github.ref_name == 'main'
-  #   uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1.0.9
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
   #   with:
   #     package:           ${{ vars.HQ_PACKAGE }}
   #     environment:       ntc-prod
@@ -95,7 +95,7 @@ jobs:
 
   # deploy-ntc-staging:
   #   if: github.ref_name == 'release'
-  #   uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1.0.9
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
   #   with:
   #     package:           ${{ vars.HQ_PACKAGE }}
   #     environment:       ntc-staging

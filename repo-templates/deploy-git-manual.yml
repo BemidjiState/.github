@@ -38,16 +38,19 @@ on:
         required: true
         type: choice
         options:
-          - bsu-dev
-          - bsu-prod
-          - bsu-staging
-          - ntc-dev
-          - ntc-prod
-          - ntc-staging
+          # Uncomment only the environments this package deploys to.
+          # These must match exactly the location environment names in
+          # /data/hq/config.json and the HQ_ENVIRONMENTS repository variable.
+          # - bsu-dev
+          # - bsu-prod
+          # - bsu-staging
+          # - ntc-dev
+          # - ntc-prod
+          # - ntc-staging
 
 jobs:
   deploy:
-    uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1.0.9
+    uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
     with:
       package:           ${{ vars.HQ_PACKAGE }}
       environment:       ${{ inputs.environment }}

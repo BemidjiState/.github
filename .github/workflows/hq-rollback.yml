@@ -1,10 +1,10 @@
 name: HQ Rollback
 
 # =============================================================================
-# Shared reusable rollback workflow for git-delivery packages.
+# Shared reusable rollback workflow for git-delivery and zip-delivery packages.
 # Called by rollback.yml in individual repositories.
 #
-# Version: 1.0.1
+# Version: 1.0.11
 # Repo:    BemidjiState/.github
 # =============================================================================
 
