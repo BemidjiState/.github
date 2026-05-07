@@ -1,12 +1,12 @@
 name: Deploy (Automatic)
 
 # =============================================================================
-# Automatic push-based deployment workflow for git-delivery packages.
-# Copy this file to .github/workflows/deploy-auto.yml in the target repo
+# Automatic release-based deployment workflow for zip-delivery packages.
+# Copy this file to .github/workflows/deploy-zip-auto.yml in the target repo
 # and follow the configuration steps below.
 #
-# Triggers on push to main    → production environments
-# Triggers on push to release → staging environments
+# Triggers on prerelease published → staging environments
+# Triggers on stable release published → production environments
 #
 # HOW TO CONFIGURE THIS FILE:
 # ----------------------------
@@ -14,93 +14,184 @@ name: Deploy (Automatic)
 # 2. Set the environment: value in each job to match the location environment
 #    name configured for this package in /data/hq/config.json exactly.
 # 3. Remove job blocks for environments that do not apply to this package.
-# 4. If this package uses non-standard branch mapping (e.g. a branch other
-#    than main triggers production), update the if: condition on the relevant
-#    job block. This is rare and should be cleaned up over time.
+# 4. The coordinated rollback job at the bottom only applies when multiple
+#    production environments are configured. Remove it if this package only
+#    deploys to a single production environment.
 #
 # KEEP IN SYNC:
 # The environment names used here must match:
-#   - The options list in deploy-git-manual.yml and rollback.yml
+#   - The options list in deploy-zip-manual.yml and rollback.yml
 #   - The HQ_ENVIRONMENTS repository variable
 #   - The location environment names in /data/hq/config.json
 # The check endpoint validates this on every run.
-#
-# No polling for push-based deploys — commit status is updated by the server
-# when the deployment completes. Check the commit status on this commit in
-# GitHub to confirm the outcome.
 # =============================================================================
 
 on:
-  push:
-    branches:
-      - main
-      - release
+  release:
+    types:
+      - published
 
 jobs:
 
   # ---------------------------------------------------------------------------
-  # Push to main → bsu-prod
+  # Prerelease published → staging
+  # Uncomment and set environment: to the correct staging environment name.
+  # ---------------------------------------------------------------------------
+
+  # deploy-bsu-staging:
+  #   if: github.event.release.prerelease == true
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-zip.yml@1.0.11
+  #   with:
+  #     package:           ${{ vars.HQ_PACKAGE }}
+  #     environment:       bsu-staging
+  #     ref:               ${{ github.event.release.tag_name }}
+  #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+  #     asset_id:          ${{ github.event.release.assets[0].id }}
+  #     poll_for_result:   false
+  #   secrets:
+  #     hmac_secret:       ${{ secrets.ORG__HQ_HMAC }}
+
+  # ---------------------------------------------------------------------------
+  # Prerelease published → staging (second environment)
+  # Remove this block if this package does not deploy to a second location.
+  # ---------------------------------------------------------------------------
+
+  # deploy-ntc-staging:
+  #   if: github.event.release.prerelease == true
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-zip.yml@1.0.11
+  #   with:
+  #     package:           ${{ vars.HQ_PACKAGE }}
+  #     environment:       ntc-staging
+  #     ref:               ${{ github.event.release.tag_name }}
+  #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+  #     asset_id:          ${{ github.event.release.assets[0].id }}
+  #     poll_for_result:   false
+  #   secrets:
+  #     hmac_secret:       ${{ secrets.ORG__HQ_HMAC }}
+
+  # ---------------------------------------------------------------------------
+  # Stable release published → production
   # Uncomment and set environment: to the correct production environment name.
   # ---------------------------------------------------------------------------
 
   # deploy-bsu-prod:
-  #   if: github.ref_name == 'main'
-  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
+  #   if: github.event.release.prerelease == false
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-zip.yml@1.0.11
   #   with:
   #     package:           ${{ vars.HQ_PACKAGE }}
   #     environment:       bsu-prod
-  #     ref:               ${{ github.sha }}
+  #     ref:               ${{ github.event.release.tag_name }}
   #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
-  #     poll_for_result:   false
+  #     asset_id:          ${{ github.event.release.assets[0].id }}
+  #     poll_for_result:   true
   #   secrets:
   #     hmac_secret:       ${{ secrets.ORG__HQ_HMAC }}
 
   # ---------------------------------------------------------------------------
-  # Push to release → bsu-staging
-  # ---------------------------------------------------------------------------
-
-  # deploy-bsu-staging:
-  #   if: github.ref_name == 'release'
-  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
-  #   with:
-  #     package:           ${{ vars.HQ_PACKAGE }}
-  #     environment:       bsu-staging
-  #     ref:               ${{ github.sha }}
-  #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
-  #     poll_for_result:   false
-  #   secrets:
-  #     hmac_secret:       ${{ secrets.ORG__HQ_HMAC }}
-
-  # ---------------------------------------------------------------------------
-  # Push to main → ntc-prod
-  # Remove this block if this package does not deploy to NTC.
+  # Stable release published → production (second environment)
+  # Runs only after the first production job succeeds.
+  # Remove this block if this package does not deploy to a second location.
   # ---------------------------------------------------------------------------
 
   # deploy-ntc-prod:
-  #   if: github.ref_name == 'main'
-  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
+  #   needs: deploy-bsu-prod
+  #   if: github.event.release.prerelease == false
+  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-zip.yml@1.0.11
   #   with:
   #     package:           ${{ vars.HQ_PACKAGE }}
   #     environment:       ntc-prod
-  #     ref:               ${{ github.sha }}
+  #     ref:               ${{ github.event.release.tag_name }}
   #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
-  #     poll_for_result:   false
+  #     asset_id:          ${{ github.event.release.assets[0].id }}
+  #     poll_for_result:   true
   #   secrets:
   #     hmac_secret:       ${{ secrets.ORG__HQ_HMAC }}
 
   # ---------------------------------------------------------------------------
-  # Push to release → ntc-staging
-  # Remove this block if this package does not deploy to NTC.
+  # Coordinated rollback if NTC production deployment fails.
+  # Rolls back both BSU and NTC to keep environments in sync.
+  # Remove this block if this package only deploys to a single prod environment.
+  # Only uncomment once both deploy-bsu-prod and deploy-ntc-prod are active.
   # ---------------------------------------------------------------------------
 
-  # deploy-ntc-staging:
-  #   if: github.ref_name == 'release'
-  #   uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
-  #   with:
-  #     package:           ${{ vars.HQ_PACKAGE }}
-  #     environment:       ntc-staging
-  #     ref:               ${{ github.sha }}
-  #     yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
-  #     poll_for_result:   false
-  #   secrets:
-  #     hmac_secret:       ${{ secrets.ORG__HQ_HMAC }}
+  # rollback-on-failure:
+  #   name: Rollback on Failure
+  #   needs: [deploy-bsu-prod, deploy-ntc-prod]
+  #   runs-on: ubuntu-latest
+  #   if: >-
+  #     failure() &&
+  #     needs.deploy-ntc-prod.result == 'failure'
+  #
+  #   steps:
+  #
+  #     - name: Roll back BSU production
+  #       run: |
+  #         PAYLOAD=$(jq -nc \
+  #           --arg package     "${{ vars.HQ_PACKAGE }}" \
+  #           --arg environment "bsu-prod" \
+  #           --arg ref         "${{ needs.deploy-bsu-prod.outputs.previous_ref }}" \
+  #           --arg sender      "${{ github.actor }}" \
+  #           '{package: $package, environment: $environment, ref: $ref,
+  #             sender: {login: $sender}}')
+  #
+  #         SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+  #           openssl dgst -sha256 -hmac '${{ secrets.ORG__HQ_HMAC }}' | \
+  #           awk '{print $2}')"
+  #
+  #         HTTP_CODE=$(curl -s -o /tmp/rollback_bsu.json -w "%{http_code}" \
+  #           -X POST "https://api.bemidjistate.edu/hq/rollback/" \
+  #           -H "Content-Type: application/json" \
+  #           -H "X-Hub-Signature-256: ${SIG}" \
+  #           -d "${PAYLOAD}" \
+  #           --connect-timeout 10 \
+  #           --max-time 120)
+  #
+  #         if [ "${HTTP_CODE}" = "200" ]; then
+  #           echo "BSU rollback completed successfully."
+  #         elif [ "${HTTP_CODE}" = "409" ]; then
+  #           echo "::warning::BSU rollback could not proceed — a deployment is currently in progress (HTTP 409)."
+  #           exit 1
+  #         elif [ "${HTTP_CODE}" = "403" ]; then
+  #           echo "::error::BSU rollback HMAC verification failed (HTTP 403)."
+  #           exit 1
+  #         else
+  #           echo "::error::BSU rollback failed (HTTP ${HTTP_CODE}). Manual intervention required."
+  #           cat /tmp/rollback_bsu.json
+  #           exit 1
+  #         fi
+  #
+  #     - name: Roll back NTC production
+  #       run: |
+  #         PAYLOAD=$(jq -nc \
+  #           --arg package     "${{ vars.HQ_PACKAGE }}" \
+  #           --arg environment "ntc-prod" \
+  #           --arg ref         "${{ needs.deploy-ntc-prod.outputs.previous_ref }}" \
+  #           --arg sender      "${{ github.actor }}" \
+  #           '{package: $package, environment: $environment, ref: $ref,
+  #             sender: {login: $sender}}')
+  #
+  #         SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+  #           openssl dgst -sha256 -hmac '${{ secrets.ORG__HQ_HMAC }}' | \
+  #           awk '{print $2}')"
+  #
+  #         HTTP_CODE=$(curl -s -o /tmp/rollback_ntc.json -w "%{http_code}" \
+  #           -X POST "https://api.bemidjistate.edu/hq/rollback/" \
+  #           -H "Content-Type: application/json" \
+  #           -H "X-Hub-Signature-256: ${SIG}" \
+  #           -d "${PAYLOAD}" \
+  #           --connect-timeout 10 \
+  #           --max-time 120)
+  #
+  #         if [ "${HTTP_CODE}" = "200" ]; then
+  #           echo "NTC rollback completed successfully."
+  #         elif [ "${HTTP_CODE}" = "409" ]; then
+  #           echo "::warning::NTC rollback could not proceed — a deployment is currently in progress (HTTP 409)."
+  #           exit 1
+  #         elif [ "${HTTP_CODE}" = "403" ]; then
+  #           echo "::error::NTC rollback HMAC verification failed (HTTP 403)."
+  #           exit 1
+  #         else
+  #           echo "::error::NTC rollback failed (HTTP ${HTTP_CODE}). Manual intervention required."
+  #           cat /tmp/rollback_ntc.json
+  #           exit 1
+  #         fi
