@@ -384,7 +384,7 @@ jobs:
                 date -j -f "%Y-%m-%dT%H:%M:%S%z" "${DEPLOYED_AT}" +%s 2>/dev/null || echo "0")
             fi
 
-            if [ "${ACTIVE_SHA:0:7}" = "${SHORT_SHA}" ] && [ "${DEPLOYED_EPOCH}" -gt "${STARTED_AT}" ]; then
+            if [ "${ACTIVE_SHA:0:7}" = "${SHORT_SHA}" ] && [ "${DEPLOYED_EPOCH}" -ge "${STARTED_AT}" ]; then
               echo "  Deployment confirmed — active SHA is ${SHORT_SHA}, deployed at ${DEPLOYED_AT} (${ELAPSED}s)"
               echo "outcome=success" >> "${GITHUB_OUTPUT}"
               exit 0
