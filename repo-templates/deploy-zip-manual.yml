@@ -43,10 +43,13 @@ on:
         required: true
         type: choice
         options:
-          - bsu-dev
-          - bsu-staging
-          - ntc-dev
-          - ntc-staging
+          # Uncomment only the environments this package deploys to.
+          # These must match exactly the location environment names in
+          # /data/hq/config.json and the HQ_ENVIRONMENTS repository variable.
+          # - bsu-dev
+          # - bsu-staging
+          # - ntc-dev
+          # - ntc-staging
       ref:
         description: >
           Release tag to deploy e.g. 2.4.1-rc or 2.4.1.
@@ -56,7 +59,7 @@ on:
 
 jobs:
   deploy:
-    uses: BemidjiState/.github/.github/workflows/hq-deploy-zip.yml@1.0.0
+    uses: BemidjiState/.github/.github/workflows/hq-deploy-zip.yml@1.0.11
     with:
       package:           ${{ vars.HQ_PACKAGE }}
       environment:       ${{ inputs.environment }}

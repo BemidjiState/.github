@@ -14,7 +14,7 @@ name: HQ Deploy (Zip)
 # by callers that already have it (e.g. deploy-zip-stable.yml, which reads it
 # from the release event payload).
 #
-# Version: 1.0.0
+# Version: 1.0.11
 # Repo:    BemidjiState/.github
 # =============================================================================
 
@@ -56,6 +56,13 @@ on:
         required: false
         type: boolean
         default: false
+    outputs:
+      previous_ref:
+        description: The ref that was active before this deployment. Used by callers for coordinated rollback.
+        value: ${{ jobs.validate.outputs.previous_ref }}
+      previous_sha:
+        description: The short SHA that was active before this deployment.
+        value: ${{ jobs.validate.outputs.previous_sha }}
     secrets:
       hmac_secret:
         description: HQ_HMAC_SECRET — must match DEPLOY_HMAC_SECRET on the server
@@ -274,6 +281,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
 
+    outputs:
+      poll_outcome: ${{ steps.poll.outputs.outcome }}
+
     steps:
 
       - name: Resolve zip asset ID from release tag
@@ -370,13 +380,14 @@ jobs:
           fi
 
       - name: Poll for deployment confirmation
+        id: poll
         if: ${{ inputs.poll_for_result == true }}
         run: |
           PACKAGE="${{ inputs.package }}"
           ENV="${{ inputs.environment }}"
           TARGET_REF="${{ inputs.ref }}"
           STARTED_AT=$(date -u +%s)
-          TIMEOUT=300
+          TIMEOUT=90
           ELAPSED=0
           RETRY_COUNT=0
           MAX_RETRIES=3
@@ -411,9 +422,8 @@ jobs:
 
               if [ "${RETRY_COUNT}" -ge "${MAX_RETRIES}" ]; then
                 echo ""
-                echo "::warning::Could not confirm deployment outcome."
-                echo "The check endpoint was unreachable during polling (HTTP ${HTTP_CODE})."
-                echo "The deployment may have succeeded or failed independently."
+                echo "::warning::Could not confirm deployment outcome — check endpoint unreachable (HTTP ${HTTP_CODE})."
+                echo "The deployment job was accepted by the server. Outcome is unknown."
                 echo ""
                 echo "To verify manually:"
                 echo "  - Run: hq status ${PACKAGE} on the server"
@@ -421,6 +431,7 @@ jobs:
                 echo "  - Run: hq health"
                 echo ""
                 echo "For troubleshooting see: ${{ env.README_URL }}"
+                echo "outcome=timeout" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
               continue
@@ -448,27 +459,32 @@ jobs:
 
             if [ "${ACTIVE_REF}" = "${TARGET_REF}" ] && [ "${DEPLOYED_EPOCH}" -gt "${STARTED_AT}" ]; then
               echo "  Deployment confirmed — active ref is ${TARGET_REF}, deployed at ${DEPLOYED_AT} (${ELAPSED}s)"
+              echo "outcome=success" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
 
             echo "  Still deploying... (${ELAPSED}s)"
           done
 
-          echo "::error::Deployment confirmation timed out after ${TIMEOUT} seconds."
+          echo ""
+          echo "::warning::Deployment confirmation timed out after ${TIMEOUT} seconds."
+          echo "The deployment job was accepted by the server. Outcome is unknown."
           echo ""
           echo "To verify manually:"
           echo "  - Run: hq status ${PACKAGE} on the server"
           echo "  - Check: /data/domains/api.bemidjistate.edu/hq/logs/deploy.log"
-          exit 1
+          echo ""
+          echo "For troubleshooting see: ${{ env.README_URL }}"
+          echo "outcome=timeout" >> "${GITHUB_OUTPUT}"
+          exit 0
 
   # ---------------------------------------------------------------------------
   # Job 3: rollback-on-failure
-  # Runs only if deploy failed AND the environment is not a dev environment
-  # AND there was a previous deployment to roll back to.
-  # Dev environments are detected by the presence of -dev or -development
-  # anywhere in the environment name (e.g. bsu-dev, ntc-dev).
-  # Workflow is always marked as failed after rollback since the deployment
-  # itself failed.
+  # Runs only if the deploy job failed with a confirmed error — not on a poll
+  # timeout. A timeout means the server accepted the job but confirmation
+  # expired — outcome unknown, no rollback. Rollback only fires when the
+  # webhook itself returned an error (non-200) which is a confirmed failure.
+  # Dev environments are skipped — rollback is for staging and production only.
   # ---------------------------------------------------------------------------
 
   rollback-on-failure:
@@ -478,7 +494,8 @@ jobs:
     if: >-
       failure() &&
       needs.deploy.result == 'failure' &&
-      needs.validate.outputs.previous_ref != ''
+      needs.validate.outputs.previous_ref != '' &&
+      needs.deploy.outputs.poll_outcome != 'timeout'
 
     steps:
 

@@ -43,8 +43,12 @@ on:
         required: true
         type: choice
         options:
-          - bsu-dev
-          - ntc-dev
+          # Uncomment only the dev environments this package deploys to.
+          # These must match exactly the location environment names in
+          # /data/hq/config.json and the HQ_ENVIRONMENTS repository variable.
+          # Feature branches must only deploy to dev environments.
+          # - bsu-dev
+          # - ntc-dev
 
 jobs:
 

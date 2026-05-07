@@ -45,12 +45,15 @@ on:
         required: true
         type: choice
         options:
-          - bsu-dev
-          - bsu-prod
-          - bsu-staging
-          - ntc-dev
-          - ntc-prod
-          - ntc-staging
+          # Uncomment only the environments this package deploys to.
+          # These must match exactly the location environment names in
+          # /data/hq/config.json and the HQ_ENVIRONMENTS repository variable.
+          # - bsu-dev
+          # - bsu-prod
+          # - bsu-staging
+          # - ntc-dev
+          # - ntc-prod
+          # - ntc-staging
       ref:
         description: >
           Ref to roll back to — release tag, branch name, or commit SHA.
@@ -61,7 +64,7 @@ on:
 
 jobs:
   rollback:
-    uses: BemidjiState/.github/.github/workflows/hq-rollback.yml@1.0.1
+    uses: BemidjiState/.github/.github/workflows/hq-rollback.yml@1.0.111
     with:
       package:           ${{ vars.HQ_PACKAGE }}
       environment:       ${{ inputs.environment }}
