@@ -13,9 +13,8 @@ This is a special repository used for GitHub organisation features and shared Gi
 5. [Repository Settings Reference](#5-repository-settings-reference)
 6. [Organisation Settings Reference](#6-organisation-settings-reference)
 7. [Workflow Versioning](#7-workflow-versioning)
-8. [Enterprise Upgrade Path](#8-enterprise-upgrade-path)
-9. [Troubleshooting](#9-troubleshooting)
-10. [Shared Workflow Reference](#10-shared-workflow-reference)
+8. [Troubleshooting](#8-troubleshooting)
+9. [Shared Workflow Reference](#9-shared-workflow-reference)
 
 ---
 
@@ -24,20 +23,21 @@ This is a special repository used for GitHub organisation features and shared Gi
 ```
 BemidjiState/.github/
 ├── .github/
-│   ├── workflows/
-│   │   ├── branch-protection-warning.yml  # Enforces release → main merge flow
-│   │   ├── version-increment.yml          # Semantic versioning and tagging
-│   │   ├── hq-deploy.yml                  # HQ shared deploy workflow
-│   │   └── hq-rollback.yml                # HQ shared rollback workflow
-│   └── actions/
-│       └── hq-sign-payload/
-│           └── action.yml                 # HQ HMAC payload signing action
+│   └── workflows/
+│       ├── branch-protection-warning.yml  # Enforces release → main merge flow
+│       ├── version-increment.yml          # Semantic versioning and tagging
+│       ├── hq-deploy-git.yml              # HQ shared deploy workflow — git delivery
+│       ├── hq-deploy-zip.yml              # HQ shared deploy workflow — zip delivery
+│       └── hq-rollback.yml                # HQ shared rollback workflow
 ├── profile/
 │   └── README.md                          # Organisation profile page
 ├── repo-templates/
-│   ├── deploy-auto.yml                    # Template — automatic push-based deployments
-│   ├── deploy-manual.yml                  # Template — manual workflow_dispatch deployments
-│   └── rollback.yml                       # Template — manual rollback
+│   ├── deploy-git-auto.yml                # Template — git delivery, automatic push-based deployment
+│   ├── deploy-git-manual.yml              # Template — git delivery, manual workflow_dispatch deployment
+│   ├── deploy-zip-auto.yml                # Template — zip delivery, automatic release-based deployment
+│   ├── deploy-zip-manual.yml              # Template — zip delivery, manual workflow_dispatch deployment
+│   ├── deploy-zip-feature.yml             # Template — zip delivery, feature branch build and deploy to dev
+│   └── rollback.yml                       # Template — manual rollback, works for both delivery types
 ├── scripts/
 │   └── configure-environments.sh          # Configures GitHub Environment protection rules
 └── README.md                              # This file
@@ -50,7 +50,7 @@ BemidjiState/.github/
 Reusable workflows stored here are available to all repositories in the organisation. Any repository can call them using:
 
 ```yaml
-uses: BemidjiState/.github/.github/workflows/{workflow-name}.yml@{ref}
+uses: BemidjiState/.github/.github/workflows/{workflow-name}.yml@{version}
 ```
 
 ### `branch-protection-warning.yml`
@@ -88,32 +88,54 @@ jobs:
 
 ## 3. HQ Deployment System
 
-The HQ deployment system automates code deployment across all BSU and NTC server environments. All deployment logic lives in the shared workflows here — individual repositories contain only thin caller workflows that reference them by version. When the deployment process changes, it changes here and all repositories inherit the update automatically.
+The HQ deployment system automates code deployment across all BSU and NTC server environments. All deployment logic lives in the shared workflows here — individual repositories contain only thin caller workflows that reference them by version tag. When the deployment process changes, it changes here and all repositories inherit the update on their next version bump.
+
+### Delivery Types
+
+HQ supports two delivery methods. The correct shared workflow depends on which delivery type the package uses — this is configured in `/data/hq/config.json` on the server.
+
+| Delivery | Config | Description | Shared workflow |
+|---|---|---|---|
+| Git | `delivery: "git"` (default) | HQ clones a bare mirror and deploys via `git archive`. Used for packages without a build step. | `hq-deploy-git.yml` |
+| Zip | `delivery: "zip"` | HQ downloads a compiled zip from a GitHub Release asset. Used for packages with a build step. | `hq-deploy-zip.yml` |
 
 ### How It Works
 
-When a developer pushes to `main` or `release`, or manually triggers a deployment from the Actions tab, the workflow in that repository calls one of the shared workflows here. The shared workflow:
+A repo-level caller workflow in each repository defines when deployments trigger — on push, on release publish, or manually via `workflow_dispatch`. The caller workflow passes the package name, target environment, and ref to one of the shared workflows here. The shared workflow then:
 
-1. Verifies `HQ_HMAC_SECRET` is configured
+1. Verifies `HQ_PACKAGE` and `HQ_ENVIRONMENTS` repository variables are configured
 2. Calls `/hq/check/health/` — confirms the deployment infrastructure is operational
 3. Calls `/hq/check/deployment/` — validates that `HQ_ENVIRONMENTS` matches `config.json` exactly and displays current deployment status
-4. References the GitHub environment by name — protection rules apply here (`ws-merge-approval` team approval for production/staging, open for dev)
+4. References the GitHub environment by name — protection rules apply here (`ws-merge-approval` team approval for non-dev environments, open for dev)
 5. Signs the payload and POSTs to `/hq/deploy/` or `/hq/rollback/`
-6. For manual deploys: polls for confirmation, triggers automatic rollback if deployment fails on production/staging
+6. For manual deploys: polls for confirmation, triggers automatic rollback if deployment fails on non-dev environments
 
 **Two repos, one config.** All package configuration lives in `/data/hq/config.json` on the server — untracked, managed manually. The `HQ_ENVIRONMENTS` repository variable must match the location environment names in `config.json` exactly. The check endpoint catches any mismatch on every run.
 
-**Dev environment detection.** The shared workflow detects dev environments by checking whether the environment name contains `-dev` or `-development` anywhere in the name — e.g. `bsu-dev`, `ntc-dev`, `bsu-undergraduate-catalog-dev`. Automatic rollback on failure is skipped for dev environments — developers simply redeploy.
+**Dev environment detection.** Dev environments are identified by `-dev` or `-development` anywhere in the environment name. Automatic rollback on failure is skipped for dev environments — developers simply redeploy.
 
 ### Repo Templates
 
-Three caller workflow templates live in `repo-templates/`. Copy these into `.github/workflows/` in each repository that uses HQ:
+Six caller workflow templates live in `repo-templates/`. Copy the relevant templates into `.github/workflows/` in the target repository and configure them for the package. The templates are starting points — all environment options lists and job blocks are commented out. The developer uncomments and configures only what applies to their package.
 
-| Template | Purpose |
-|---|---|
-| `deploy-auto.yml` | Push to `main` → production, push to `release` → staging. One commented-out job block per environment — uncomment and configure the ones that apply. |
-| `deploy-manual.yml` | Manual `workflow_dispatch` — branch picker selects branch, hardcoded options list selects environment |
-| `rollback.yml` | Manual `workflow_dispatch` rollback — hardcoded options list selects environment, free-text ref input |
+Choose templates based on the package delivery type — see [Delivery Types](#delivery-types) above.
+
+**Git delivery packages:**
+
+| Template | Copy to repo as | Purpose |
+|---|---|---|
+| `deploy-git-auto.yml` | `deploy-auto.yml` | Automatic push-based deployment. Configure which branches trigger which environments. |
+| `deploy-git-manual.yml` | `deploy-manual.yml` | Manual dispatch — branch picker selects branch, options list selects environment. |
+| `rollback.yml` | `rollback.yml` | Manual rollback — options list selects environment, free-text ref input. |
+
+**Zip delivery packages:**
+
+| Template | Copy to repo as | Purpose |
+|---|---|---|
+| `deploy-zip-auto.yml` | `deploy-zip-auto.yml` | Automatic release-based deployment. Configure which release types (prerelease/stable) trigger which environments. |
+| `deploy-zip-manual.yml` | `deploy-zip-manual.yml` | Manual dispatch — operator types a release tag, options list selects environment. |
+| `deploy-zip-feature.yml` | `deploy-zip-feature.yml` | Manual dispatch — builds from a feature branch, uploads artifact, deploys to dev only. Requires updating the build steps for the package. |
+| `rollback.yml` | `rollback.yml` | Manual rollback — same template as git delivery, works for both. |
 
 ---
 
@@ -128,7 +150,7 @@ Follow these steps in order when onboarding a new repository to the HQ deploymen
 # Then initialise the package directory structure
 hq init {package}
 
-# Verify the bare mirror cloned correctly
+# Verify the bare mirror cloned correctly (git delivery only)
 hq branches {package}
 
 # Test a deployment from the CLI before wiring up GitHub
@@ -141,26 +163,14 @@ Go to: **Repository → Settings → Secrets and variables → Actions → Varia
 
 | Variable | Value | Description |
 |---|---|---|
-| `HQ_PACKAGE` | e.g. `sso-o365` | Package name — must match a key in `/data/hq/config.json` |
-| `HQ_ENVIRONMENTS` | e.g. `["bsu-dev","bsu-prod","bsu-staging"]` | JSON array of all valid environments for this package |
+| `HQ_PACKAGE` | e.g. `my-package` | Package name — must match a key in `/data/hq/config.json` |
+| `HQ_ENVIRONMENTS` | e.g. `["env-dev","env-prod","env-staging"]` | JSON array of all valid environments for this package |
 
-`HQ_ENVIRONMENTS` must match the `environment` values in the `locations` array in `config.json` exactly, including capitalisation. It is also used by the check endpoint on every deployment run which fails immediately with a precise error if they are out of sync.
+`HQ_ENVIRONMENTS` must match the `environment` values in the `locations` array in `config.json` exactly, including capitalisation. The check endpoint validates this on every deployment run and fails immediately with a precise error if they are out of sync.
 
-`HQ_ENVIRONMENTS` must also match the `options:` list in `deploy-manual.yml` and `rollback.yml`. The check endpoint catches drift between `HQ_ENVIRONMENTS` and `config.json`. Drift between `HQ_ENVIRONMENTS` and the YAML options list does not cause a deployment failure but means the dropdown may show environments that don't exist — update them together.
+`HQ_ENVIRONMENTS` must also match the `options:` list in the manual deploy and rollback workflows. The check endpoint catches drift between `HQ_ENVIRONMENTS` and `config.json`. Drift between `HQ_ENVIRONMENTS` and the YAML options list does not cause a deployment failure but means the dropdown may show environments that do not exist — update them together.
 
-### Step 3 — Repository Secret
-
-Go to: **Repository → Settings → Secrets and variables → Actions → Secrets tab**
-
-| Secret | Value |
-|---|---|
-| `HQ_HMAC_SECRET` | Same value as `DEPLOY_HMAC_SECRET` on the server |
-
-This secret signs all webhook payloads sent to the HQ API. It must match `DEPLOY_HMAC_SECRET` in `/data/domains/api.bemidjistate.edu/hq/config/.env` and in the PHP-FPM pool config.
-
-When the GitHub Enterprise licence is active, this moves to an organisation secret and the per-repo secret can be deleted. No workflow changes needed.
-
-### Step 4 — Environment Protection Rules
+### Step 3 — Environment Protection Rules
 
 Run `configure-environments.sh` from `BemidjiState/.github/scripts/` to configure protection rules for all environments in `HQ_ENVIRONMENTS`:
 
@@ -174,42 +184,15 @@ This reads `WS_MERGE_APPROVAL_TEAM` from the organisation variables and configur
 
 Alternatively, configure manually for each environment at: **Repository → Settings → Environments → {environment}**
 
-### Step 5 — Workflow Files
+### Step 4 — Workflow Files
 
-Copy the three template files from `repo-templates/` into `.github/workflows/` in the target repository:
+Copy the relevant template files from `repo-templates/` into `.github/workflows/` in the target repository. See the [Repo Templates](#repo-templates) table above for which templates apply to git vs zip delivery packages.
 
-```
-repo-templates/deploy-auto.yml    →    .github/workflows/deploy-auto.yml
-repo-templates/deploy-manual.yml  →    .github/workflows/deploy-manual.yml
-repo-templates/rollback.yml       →    .github/workflows/rollback.yml
-```
+All environment `options:` lists in the templates are commented out. Uncomment only the environments that apply to this package and ensure they match `HQ_ENVIRONMENTS` and `config.json` exactly.
 
-**`deploy-auto.yml`** — contains commented-out job blocks for the standard environments. Uncomment the blocks that apply to this package and set the correct environment name in each. Remove blocks for environments that don't apply.
+For `deploy-zip-auto.yml` and `deploy-git-auto.yml`, job blocks for each environment are also commented out. Uncomment the blocks that apply and remove the rest.
 
-Example for a package deploying to BSU only:
-
-```yaml
-jobs:
-  deploy-bsu-prod:
-    if: github.ref_name == 'main'
-    uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
-    with:
-      package:           ${{ vars.HQ_PACKAGE }}
-      environment:       bsu-prod
-      ...
-
-  deploy-bsu-staging:
-    if: github.ref_name == 'release'
-    uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
-    with:
-      package:           ${{ vars.HQ_PACKAGE }}
-      environment:       bsu-staging
-      ...
-```
-
-**`deploy-manual.yml` and `rollback.yml`** — contain a hardcoded `options:` list of environments. GitHub does not support populating `workflow_dispatch` choice inputs dynamically from variables — the list must be static. Update the `options:` list to match the environments for this package.
-
-### Step 6 — Branch Protection
+### Step 5 — Branch Protection
 
 Go to: **Repository → Settings → Branches → Add branch ruleset**
 
@@ -221,7 +204,7 @@ Configure `main`:
 Configure `release`:
 - Require a pull request before merging
 
-### Step 7 — Verify
+### Step 6 — Verify
 
 ```bash
 # Test the webhook pipeline directly from the server
@@ -246,11 +229,13 @@ Go to: **Repository → Settings → Secrets and variables → Actions → Varia
 
 ### Secrets
 
-Go to: **Repository → Settings → Secrets and variables → Actions → Secrets tab**
+The HMAC secret is configured at the organisation level and is automatically available to all repositories. No per-repository secret configuration is needed.
 
-| Secret | Required | Description |
-|---|---|---|
-| `HQ_HMAC_SECRET` | Yes | Shared HMAC secret — same value as `DEPLOY_HMAC_SECRET` on the server |
+Go to: **BemidjiState → Settings → Secrets and variables → Actions → Organisation secrets**
+
+| Secret | Description |
+|---|---|
+| `ORG__HQ_HMAC` | Shared HMAC secret — same value as `DEPLOY_HMAC_SECRET` on the server |
 
 ### Environments
 
@@ -282,6 +267,14 @@ To add a new team to the approval group:
 2. Run `./scripts/configure-environments.sh --all` to propagate across all repos
 3. No workflow files need updating
 
+### Secrets
+
+Go to: **BemidjiState → Settings → Secrets and variables → Actions → Organisation secrets**
+
+| Secret | Description |
+|---|---|
+| `ORG__HQ_HMAC` | HMAC secret for HQ webhook payload signing — same value as `DEPLOY_HMAC_SECRET` on the server. Available to all repositories automatically. |
+
 ### Teams
 
 Go to: **BemidjiState → Settings → Teams**
@@ -294,77 +287,45 @@ Go to: **BemidjiState → Settings → Teams**
 
 ## 7. Workflow Versioning
 
-Shared workflows are versioned using Git tags on this repository. Tags use `{major}.{minor}.{patch}` format — no `v` prefix.
-
-| Tag | Meaning |
-|---|---|
-| `1` | Floating major version — always points to latest `1.x.x` release |
-| `1.0.0` | Specific version — never moves |
-| `main` | Active development — used for testing new changes |
-
-Caller workflows in individual repositories pin to the floating major version tag:
+Shared workflows are versioned using Git tags on this repository. Tags use `{major}.{minor}.{patch}` format — no `v` prefix. Caller workflows in individual repositories pin to a specific version tag:
 
 ```yaml
-uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1
+uses: BemidjiState/.github/.github/workflows/hq-deploy-git.yml@1.0.11
 ```
 
-Minor improvements and bug fixes are released as `1.1.0`, `1.2.0` etc. The floating `1` tag moves forward automatically. Breaking changes are released as `2.0.0` — repositories migrate at their own pace by changing `@1` to `@2` in their three caller workflow files.
+All shared workflows in a given release share the same tag — `hq-deploy-git.yml`, `hq-deploy-zip.yml`, and `hq-rollback.yml` are all tagged together on each release.
 
 ### Releasing a New Version
 
 ```bash
-# Tag the specific version
-git tag 1.1.0
-git push origin 1.1.0
-
-# Move the floating major version tag forward
-git tag -f 1
-git push origin 1 --force
+# Tag the new version
+git tag 1.0.12
+git push origin 1.0.12
 ```
+
+Then update the version reference in each caller repo's workflow files from the old tag to the new one. Repos continue to use the old tag until their workflows are updated — there is no automatic inheritance.
+
+### Current Version
+
+The current shared workflow version is `1.0.11`. All repo-level caller workflows should reference `@1.0.11`.
 
 ---
 
-## 8. Enterprise Upgrade Path
+## 8. Troubleshooting
 
-The organisation GitHub Enterprise licence will be active shortly. The following changes apply once it is in place — no workflow files need updating for any of these.
-
-### HQ_HMAC_SECRET → Organisation Secret
-
-Move `HQ_HMAC_SECRET` from per-repo secrets to a single organisation secret:
-
-**BemidjiState → Settings → Secrets and variables → Actions → Organisation secrets → New organisation secret**
-
-| Secret | Value | Access |
-|---|---|---|
-| `HQ_HMAC_SECRET` | Same as `DEPLOY_HMAC_SECRET` on the server | All repositories |
-
-Delete per-repo `HQ_HMAC_SECRET` secrets one at a time — the org secret takes effect immediately as each is removed. New repos no longer need this step during onboarding.
-
-### Environment Protection Rules → Organisation-Level Policies
-
-With enterprise, environment protection rules can be enforced at the org level rather than per-repo. Once configured, new repos get the correct protection rules automatically the moment their environments are created by the first workflow run. The `configure-environments.sh` script becomes optional rather than required.
-
-Configure at: **BemidjiState → Settings → Environments** (enterprise feature)
-
-### Branch Protection → Organisation Rulesets
-
-With enterprise, branch protection rules can be defined once as org-level rulesets that apply to all repos matching a pattern. The manual branch protection step during onboarding is eliminated.
-
-Configure at: **BemidjiState → Settings → Rules → Rulesets** (enterprise feature)
-
----
-
-## 9. Troubleshooting
-
-### HQ_HMAC_SECRET not configured
+### HQ_PACKAGE or HQ_ENVIRONMENTS not configured
 
 ```
-Error: HQ_HMAC_SECRET is not configured on this repository.
+Error: HQ_PACKAGE is not configured on this repository.
+Error: HQ_ENVIRONMENTS is not configured on this repository.
 ```
 
-**Fix:** Repository → Settings → Secrets and variables → Actions → New repository secret
-Name: `HQ_HMAC_SECRET`
-Value: same as `DEPLOY_HMAC_SECRET` on the server
+**Fix:** Repository → Settings → Secrets and variables → Actions → Variables tab → New repository variable
+
+| Variable | Value |
+|---|---|
+| `HQ_PACKAGE` | Package name matching a key in `/data/hq/config.json` e.g. `my-package` |
+| `HQ_ENVIRONMENTS` | JSON array of environment names e.g. `["env-dev","env-staging","env-prod"]` |
 
 ### Health check failed
 
@@ -385,41 +346,50 @@ supervisorctl start hq-runner
 
 ```
 HQ_ENVIRONMENTS repository variable does not match config.json for package 'my-package'.
-  ntc-dev  [yaml_only]  In HQ_ENVIRONMENTS but NOT in config.json...
+  env-dev  [yaml_only]  In HQ_ENVIRONMENTS but NOT in config.json...
 ```
 
 **Fix options:**
-- Remove `ntc-dev` from `HQ_ENVIRONMENTS` (Repository → Settings → Variables), or
-- Add a `ntc-dev` location for this package in `config.json` and run `hq init {package}` on the server
+- Remove `env-dev` from `HQ_ENVIRONMENTS` (Repository → Settings → Variables), or
+- Add an `env-dev` location for this package in `config.json` and run `hq init {package}` on the server
 
-Also update the `options:` list in `deploy-manual.yml` and `rollback.yml` to match.
+Also update the `options:` list in the manual deploy and rollback workflow files to match.
 
 ### HMAC verification failed (403)
 
-`HQ_HMAC_SECRET` does not match `DEPLOY_HMAC_SECRET` on the server.
+```
+HMAC verification failed (HTTP 403).
+```
+
+`ORG__HQ_HMAC` does not match `DEPLOY_HMAC_SECRET` on the server.
 
 **Fix:** Verify both values are identical:
 - Server: `cat /data/domains/api.bemidjistate.edu/hq/config/.env`
-- GitHub: Repository → Settings → Secrets → Update `HQ_HMAC_SECRET`
+- GitHub: BemidjiState → Settings → Secrets and variables → Actions → Organisation secrets → `ORG__HQ_HMAC`
 
 ### Deployment confirmation timed out
 
 ```
-Deployment confirmation timed out after 60 seconds.
+Warning: Deployment confirmation timed out after 60 seconds.
+The deployment job was accepted by the server. Outcome is unknown.
 ```
+
+The deployment was queued successfully but the poll could not confirm completion within the timeout window. The deployment may have succeeded.
 
 **Fix:** Check the deploy log on the server:
 
 ```bash
-tail -50 /data/domains/api.bemidjistate.edu/hq/logs/deploy.log
 hq status {package}
+tail -50 /data/domains/api.bemidjistate.edu/hq/logs/deploy.log
 ```
+
+No automatic rollback is triggered on a timeout — only on a confirmed failure.
 
 ### Check endpoint unreachable during polling
 
 ```
-Warning: Could not confirm deployment outcome.
-The check endpoint was unreachable during polling (HTTP 502).
+Warning: Could not confirm deployment outcome — check endpoint unreachable (HTTP 502).
+The deployment job was accepted by the server. Outcome is unknown.
 ```
 
 The deployment may have succeeded — no automatic rollback is triggered.
@@ -432,13 +402,23 @@ hq health
 tail -20 /data/domains/api.bemidjistate.edu/hq/logs/deploy.log
 ```
 
+### Zip asset not found for release tag
+
+```
+Error: No zip asset found in release '2.4.1-rc'.
+```
+
+The release exists but has no `.zip` asset attached, or the asset has a content type other than `application/zip`.
+
+**Fix:** Verify the release at `https://github.com/BemidjiState/{repo}/releases/tag/{tag}` has a zip file attached. The build workflow for this package must complete successfully before a deployment can be triggered.
+
 ---
 
-## 10. Shared Workflow Reference
+## 9. Shared Workflow Reference
 
-### `hq-deploy.yml`
+### `hq-deploy-git.yml`
 
-Handles all deployment logic. Called by `deploy-auto.yml` and `deploy-manual.yml`.
+Handles all deployment logic for git-delivery packages. Called by `deploy-auto.yml` and `deploy-manual.yml`.
 
 **Inputs:**
 
@@ -448,17 +428,44 @@ Handles all deployment logic. Called by `deploy-auto.yml` and `deploy-manual.yml
 | `environment` | Yes | — | Target environment name |
 | `ref` | Yes | — | Branch, tag, or commit SHA |
 | `yaml_environments` | Yes | — | JSON array from `HQ_ENVIRONMENTS` |
-| `poll_for_result` | No | `false` | Poll for deployment confirmation |
+| `poll_for_result` | No | `false` | Poll for deployment confirmation after queuing |
 
-**Secrets:** `hmac_secret` (required)
+**Secrets:** `hmac_secret` — pass `${{ secrets.ORG__HQ_HMAC }}`
 
-**Jobs:** `validate` → `deploy` → `rollback-on-failure` (on failure, non-dev environments only)
+**Jobs:** `validate` → `deploy` → `rollback-on-failure` (on confirmed failure, non-dev environments only)
 
-**Dev environment detection:** environments containing `-dev` or `-development` anywhere in the name are treated as dev. Automatic rollback is skipped for dev environments.
+**Poll timeout:** 60 seconds, 10 second interval. Timeout exits as a warning — no rollback triggered. Rollback only fires on a confirmed deploy webhook failure.
+
+---
+
+### `hq-deploy-zip.yml`
+
+Handles all deployment logic for zip-delivery packages. Called by `deploy-zip-auto.yml`, `deploy-zip-manual.yml`, and `deploy-zip-feature.yml`.
+
+**Inputs:**
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `package` | Yes | — | Package name from `HQ_PACKAGE` |
+| `environment` | Yes | — | Target environment name |
+| `ref` | Yes | — | Release tag to deploy e.g. `2.4.1-rc` or `2.4.1` |
+| `yaml_environments` | Yes | — | JSON array from `HQ_ENVIRONMENTS` |
+| `asset_id` | No | `''` | GitHub Release asset ID. If omitted, resolved from `ref` via the GitHub API. |
+| `poll_for_result` | No | `false` | Poll for deployment confirmation after queuing |
+
+**Outputs:** `previous_ref`, `previous_sha` — the ref and SHA active before this deployment. Used by callers for coordinated rollback across multiple environments.
+
+**Secrets:** `hmac_secret` — pass `${{ secrets.ORG__HQ_HMAC }}`
+
+**Jobs:** `validate` → `deploy` → `rollback-on-failure` (on confirmed failure, non-dev environments only)
+
+**Poll timeout:** 90 seconds, 10 second interval. Timeout exits as a warning — no rollback triggered. Rollback only fires on a confirmed deploy webhook failure.
+
+---
 
 ### `hq-rollback.yml`
 
-Handles all rollback logic. Called by `rollback.yml`.
+Handles all rollback logic. Called by `rollback.yml`. Works for both git-delivery and zip-delivery packages.
 
 **Inputs:**
 
@@ -466,19 +473,14 @@ Handles all rollback logic. Called by `rollback.yml`.
 |---|---|---|
 | `package` | Yes | Package name from `HQ_PACKAGE` |
 | `environment` | Yes | Environment to roll back |
-| `ref` | Yes | Ref to roll back to |
+| `ref` | Yes | Ref to roll back to — branch, tag, or commit SHA |
 | `yaml_environments` | Yes | JSON array from `HQ_ENVIRONMENTS` |
 
-**Secrets:** `hmac_secret` (required)
+**Secrets:** `hmac_secret` — pass `${{ secrets.ORG__HQ_HMAC }}`
 
 **Jobs:** `validate` → `rollback`
 
-### `hq-sign-payload` (Composite Action)
-
-Signs a JSON payload with HMAC-SHA256. Used internally by both shared workflows.
-
-**Inputs:** `payload` (JSON string), `secret` (HMAC secret)
-**Outputs:** `signature` (`sha256={hex}` for `X-Hub-Signature-256` header)
+---
 
 ### `branch-protection-warning.yml`
 
@@ -489,6 +491,8 @@ Enforces that merges to a primary branch only come from the `release` branch.
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `primary_branch` | No | `main` | The branch to protect |
+
+---
 
 ### `version-increment.yml`
 
