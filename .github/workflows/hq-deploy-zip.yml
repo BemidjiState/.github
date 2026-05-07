@@ -113,7 +113,36 @@ jobs:
             exit 1
           fi
 
-      - name: Check infrastructure health
+      - name: Verify HQ_PACKAGE and HQ_ENVIRONMENTS are configured
+        run: |
+          MISSING=0
+
+          if [ -z "${{ vars.HQ_PACKAGE }}" ]; then
+            echo "::error::HQ_PACKAGE is not configured on this repository."
+            echo ""
+            echo "Fix: Repository → Settings → Secrets and variables → Actions → Variables tab → New repository variable"
+            echo "     Name:  HQ_PACKAGE"
+            echo "     Value: the package name as defined in /data/hq/config.json"
+            echo "            e.g. sso-o365, wpt-bsuwp"
+            echo ""
+            MISSING=1
+          fi
+
+          if [ -z "${{ vars.HQ_ENVIRONMENTS }}" ]; then
+            echo "::error::HQ_ENVIRONMENTS is not configured on this repository."
+            echo ""
+            echo "Fix: Repository → Settings → Secrets and variables → Actions → Variables tab → New repository variable"
+            echo "     Name:  HQ_ENVIRONMENTS"
+            echo "     Value: JSON array of all environment names for this package as defined in /data/hq/config.json"
+            echo '            e.g. ["bsu-dev","bsu-staging","bsu-prod","ntc-dev","ntc-staging","ntc-prod"]'
+            echo ""
+            MISSING=1
+          fi
+
+          if [ "${MISSING}" = "1" ]; then
+            echo "For setup instructions see: ${{ env.README_URL }}"
+            exit 1
+          fi
         id: health
         run: |
           PAYLOAD=$(jq -nc \
