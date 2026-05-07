@@ -4,7 +4,7 @@ name: HQ Rollback
 # Shared reusable rollback workflow for git-delivery packages.
 # Called by rollback.yml in individual repositories.
 #
-# Version: 1.0.0
+# Version: 1.0.1
 # Repo:    BemidjiState/.github
 # =============================================================================
 
@@ -144,16 +144,16 @@ jobs:
             exit 1
           fi
 
-          VALID=$(jq -r '.data.valid' /tmp/check_response.json)
+          VALID=$(jq -r '.valid // "false"' /tmp/check_response.json)
 
           if [ "${VALID}" != "true" ]; then
             echo "::error::Validation failed for package '${{ inputs.package }}'."
             echo ""
-            jq -r '.data.environments | to_entries[] | select(.value.status != "match") |
+            jq -r '(.environments // {}) | to_entries[] | select(.value.status != "match") |
               "  \(.key)  [\(.value.status)]  \(.value.message // "")"' \
               /tmp/check_response.json
             echo ""
-            jq -r '.data.messages[]' /tmp/check_response.json
+            jq -r '(.messages // []) | .[]' /tmp/check_response.json
             exit 1
           fi
 
@@ -169,7 +169,7 @@ jobs:
           echo "Rollback — ${PACKAGE} / ${ENV}"
           echo "────────────────────────────────────────────────────────────"
 
-          LOCATION=$(jq -r --arg env "${ENV}" '.data.locations[$env] // empty' \
+          LOCATION=$(jq -r --arg env "${ENV}" '(.locations // {})[$env] // empty' \
             /tmp/check_response.json)
 
           if [ -z "${LOCATION}" ] || [ "$(echo "${LOCATION}" | jq -r '.active_ref')" = "null" ]; then
@@ -191,6 +191,10 @@ jobs:
   # Depends on validate. References the GitHub environment by name so
   # environment protection rules apply here — production/staging environments
   # require WS_MERGE_APPROVAL_TEAM approval, dev passes immediately.
+  #
+  # The payload is constructed once with jq -nc and signed inline with openssl
+  # so the signed string and the transmitted body are guaranteed identical.
+  # No checkout step is needed — this job makes only an API call.
   # ---------------------------------------------------------------------------
 
   rollback:
@@ -201,23 +205,9 @@ jobs:
 
     steps:
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Sign rollback payload
-        id: sign
-        uses: BemidjiState/.github/.github/actions/hq-sign-payload@1.0.4
-        with:
-          payload: >-
-            {"package":"${{ inputs.package }}",
-             "environment":"${{ inputs.environment }}",
-             "ref":"${{ inputs.ref }}",
-             "sender":{"login":"${{ github.actor }}"}}
-          secret: ${{ secrets.hmac_secret }}
-
       - name: Send rollback webhook
         run: |
-          PAYLOAD=$(jq -n \
+          PAYLOAD=$(jq -nc \
             --arg package     "${{ inputs.package }}" \
             --arg environment "${{ inputs.environment }}" \
             --arg ref         "${{ inputs.ref }}" \
@@ -225,10 +215,14 @@ jobs:
             '{package: $package, environment: $environment, ref: $ref,
               sender: {login: $sender}}')
 
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.hmac_secret }}' | \
+            awk '{print $2}')"
+
           HTTP_CODE=$(curl -s -o /tmp/rollback_response.json -w "%{http_code}" \
             -X POST "${{ env.API_BASE }}/rollback/" \
             -H "Content-Type: application/json" \
-            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.signature }}" \
+            -H "X-Hub-Signature-256: ${SIG}" \
             -d "${PAYLOAD}" \
             --connect-timeout 10 \
             --max-time 120)
@@ -239,7 +233,7 @@ jobs:
             echo "────────────────────────────────────────────────────────────"
             echo "Rollback result — ${{ inputs.package }} / ${{ inputs.environment }}"
             echo "────────────────────────────────────────────────────────────"
-            jq -r '.data | to_entries[] |
+            jq -r 'to_entries[] |
               "  \(.key):  active=\(.value.active // "unknown")  source=\(.value.source // "unknown")"' \
               /tmp/rollback_response.json 2>/dev/null || \
               jq '.' /tmp/rollback_response.json
