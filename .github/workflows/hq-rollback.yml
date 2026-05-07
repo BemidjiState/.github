@@ -104,6 +104,8 @@ jobs:
             echo "For setup instructions see: ${{ env.README_URL }}"
             exit 1
           fi
+
+      - name: Check infrastructure health
         run: |
           PAYLOAD='{}'
           SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
