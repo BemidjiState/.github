@@ -1,19 +1,26 @@
 name: Deploy (Manual)
 
 # =============================================================================
-# Manual deployment workflow.
+# Manual deployment workflow for git-delivery packages.
+# Copy this file to .github/workflows/deploy-manual.yml in the target repo
+# and follow the configuration steps below.
 #
 # Triggered manually from the Actions tab. Select the target environment
 # from the dropdown. GitHub's native branch picker selects the branch to deploy.
 #
-# The environment list below must match the location environment names
-# configured for this package in /data/hq/config.json exactly. The check
-# endpoint validates this on every run and fails immediately if they are
-# out of sync — update both this list and HQ_ENVIRONMENTS repository
-# variable together whenever environments change.
+# HOW TO CONFIGURE THIS FILE:
+# ----------------------------
+# 1. Remove environment options that do not apply to this package.
+# 2. Ensure the remaining options exactly match the location environment names
+#    configured for this package in /data/hq/config.json.
 #
-# If this package does not use all six environments, remove the ones that
-# do not apply from the options list and from HQ_ENVIRONMENTS.
+# KEEP IN SYNC:
+# The environment names used here must match:
+#   - The options list in deploy-git-auto.yml and rollback.yml
+#   - The HQ_ENVIRONMENTS repository variable
+#   - The location environment names in /data/hq/config.json
+# The check endpoint validates this on every run and fails immediately if
+# they are out of sync.
 #
 # Environment access:
 #   bsu-dev / ntc-dev     — any developer with repository access
@@ -40,7 +47,7 @@ on:
 
 jobs:
   deploy:
-    uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1.0.4
+    uses: BemidjiState/.github/.github/workflows/hq-deploy.yml@1.0.9
     with:
       package:           ${{ vars.HQ_PACKAGE }}
       environment:       ${{ inputs.environment }}
@@ -48,4 +55,4 @@ jobs:
       yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
       poll_for_result:   true
     secrets:
-      hmac_secret:       ${{ secrets.HQ_HMAC_SECRET }}
+      hmac_secret:       ${{ secrets.ORG__HQ_HMAC }}

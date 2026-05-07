@@ -1,0 +1,205 @@
+name: Deploy Feature Branch
+
+# =============================================================================
+# Feature branch build and deployment workflow for zip-delivery packages.
+# Copy this file to .github/workflows/deploy-feature.yml in the target repo
+# and follow the configuration steps below.
+#
+# Triggered manually from the Actions tab. The GitHub branch picker selects
+# the feature branch to build and deploy. Only dev environments are available
+# — feature branches must never be deployed to staging or production.
+#
+# This workflow:
+#   1. Builds the package from the selected branch
+#   2. Uploads the built zip as a GitHub Actions artifact
+#   3. Sends the run_id to HQ so the server can download and deploy it
+#
+# HOW TO CONFIGURE THIS FILE:
+# ----------------------------
+# 1. Update the build steps to match this package's build process.
+# 2. Update the artifact name and zip filename to match this package.
+# 3. Remove environment options that do not apply to this package.
+# 4. Ensure the remaining options exactly match the location environment names
+#    configured for this package in /data/hq/config.json.
+# 5. Set ORG__BSU_RELEASE_BOT_APP_ID and ORG__BSU_RELEASE_BOT_PRIV_KEY in
+#    the repository or organisation secrets if private npm dependencies are
+#    needed (see Setup Git authentication step below).
+#
+# KEEP IN SYNC:
+# The environment names used here must match:
+#   - The HQ_ENVIRONMENTS repository variable
+#   - The location environment names in /data/hq/config.json
+#
+# Environment access:
+#   bsu-dev / ntc-dev     — any developer with repository access
+#                           (enforced by GitHub Environment protection rules)
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target dev environment
+        required: true
+        type: choice
+        options:
+          - bsu-dev
+          - ntc-dev
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Job 1: build-and-deploy
+  # Builds the package, uploads the zip as an Actions artifact, then sends
+  # the run_id to HQ so the server can download and deploy it.
+  # ---------------------------------------------------------------------------
+
+  build-and-deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+
+      # -----------------------------------------------------------------------
+      # Generate a GitHub App token for private dependency access.
+      # Remove this step if this package has no private npm dependencies.
+      # -----------------------------------------------------------------------
+
+      - name: Generate GitHub App token
+        id: generate-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.ORG__BSU_RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.ORG__BSU_RELEASE_BOT_PRIV_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+
+      # -----------------------------------------------------------------------
+      # Set up Git authentication for private npm dependencies.
+      # Remove this step if this package has no private npm dependencies.
+      # -----------------------------------------------------------------------
+
+      - name: Setup Git authentication for internal dependencies
+        run: |
+          cat << EOF > ~/.netrc
+          machine github.com
+          login x-access-token
+          password ${{ steps.generate-token.outputs.token }}
+          EOF
+          chmod 600 ~/.netrc
+
+          git config --global url."https://github.com/BemidjiState".insteadOf "ssh://git@github.com/BemidjiState"
+          git config --global url."https://github.com/BemidjiState".insteadOf "git@github.com:BemidjiState"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Cache node_modules
+        id: cache-node-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        run: |
+          export NPM_SKIP_PREPARE=1
+          export NPM_SKIP_POSTINSTALL=1
+          export NPM_SKIP_PREBUILD=1
+          npm ci
+
+      # -----------------------------------------------------------------------
+      # Build step — update to match this package's build command and output
+      # directory.
+      # -----------------------------------------------------------------------
+
+      - name: Build package
+        run: |
+          export NPM_SKIP_PREPARE=1
+          export NPM_SKIP_POSTINSTALL=1
+          export NPM_SKIP_PREBUILD=1
+          npm run build
+
+      # -----------------------------------------------------------------------
+      # Create the deployment zip from the build output directory.
+      # Update the zip filename and source directory to match this package.
+      # -----------------------------------------------------------------------
+
+      - name: Create deployment zip
+        run: |
+          zip -r feature-build.zip dist/
+
+      # -----------------------------------------------------------------------
+      # Upload the zip as an Actions artifact. The artifact name must be
+      # unique enough for HQ to identify it. The run_id is included in the
+      # HQ payload so the server knows which artifact to download.
+      # -----------------------------------------------------------------------
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-build-${{ github.run_id }}
+          path: feature-build.zip
+          retention-days: 7
+
+      # -----------------------------------------------------------------------
+      # Send the deploy payload to HQ with delivery: "zip" and the run_id.
+      # HQ downloads the artifact from the Actions API using the run_id.
+      # -----------------------------------------------------------------------
+
+      - name: Send deploy webhook
+        run: |
+          PAYLOAD=$(jq -nc \
+            --arg     package     "${{ vars.HQ_PACKAGE }}" \
+            --arg     environment "${{ inputs.environment }}" \
+            --arg     ref         "${{ github.ref_name }}" \
+            --arg     sender      "${{ github.actor }}" \
+            --argjson run_id      "${{ github.run_id }}" \
+            '{package: $package, environment: $environment, ref: $ref,
+              delivery: "zip", run_id: $run_id, sender: {login: $sender}}')
+
+          SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
+            openssl dgst -sha256 -hmac '${{ secrets.ORG__HQ_HMAC }}' | \
+            awk '{print $2}')"
+
+          HTTP_CODE=$(curl -s -o /tmp/deploy_response.txt -w "%{http_code}" \
+            -X POST "https://api.bemidjistate.edu/hq/deploy/" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: ${SIG}" \
+            -d "${PAYLOAD}" \
+            --connect-timeout 10 \
+            --max-time 30)
+
+          if [ "${HTTP_CODE}" = "200" ]; then
+            echo "Deployment queued successfully."
+            echo ""
+            echo "Branch:      ${{ github.ref_name }}"
+            echo "Environment: ${{ inputs.environment }}"
+            echo "Run ID:      ${{ github.run_id }}"
+            echo ""
+            echo "The server will download the artifact and deploy it."
+            echo "Run: hq status ${{ vars.HQ_PACKAGE }} on the server to confirm."
+          elif [ "${HTTP_CODE}" = "403" ]; then
+            echo "::error::HMAC verification failed (HTTP 403). The ORG__HQ_HMAC secret does not match DEPLOY_HMAC_SECRET on the server."
+            exit 1
+          elif [ "${HTTP_CODE}" = "400" ]; then
+            echo "::error::Deployment request rejected (HTTP 400):"
+            cat /tmp/deploy_response.txt
+            exit 1
+          else
+            echo "::error::Unexpected response from deploy endpoint (HTTP ${HTTP_CODE}):"
+            cat /tmp/deploy_response.txt
+            exit 1
+          fi

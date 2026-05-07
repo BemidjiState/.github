@@ -1,19 +1,17 @@
-name: Rollback
+name: Deploy (Manual)
 
 # =============================================================================
-# Manual rollback workflow. Works for both git-delivery and zip-delivery
-# packages — HQ handles the delivery difference on the server side.
-# Copy this file to .github/workflows/rollback.yml in the target repo
+# Manual deployment workflow for zip-delivery packages.
+# Copy this file to .github/workflows/deploy-manual.yml in the target repo
 # and follow the configuration steps below.
 #
-# Triggered manually from the Actions tab. Select the environment and type
-# the ref to roll back to.
+# Triggered manually from the Actions tab. Select the target environment
+# from the dropdown and type the release tag to deploy.
 #
-# For git-delivery packages: ref is a branch name, tag, or commit SHA.
-# For zip-delivery packages: ref is a release tag e.g. 2.4.1 or 2.4.1-rc.
-#
-# To see available refs for this package run on the server:
-#   hq status {package}
+# The ref input must be a release tag that has a zip asset attached e.g.
+# 2.4.1-rc for a prerelease or 2.4.1 for a stable release. The workflow
+# resolves the tag to a zip asset ID via the GitHub API before sending
+# the HQ deploy payload.
 #
 # HOW TO CONFIGURE THIS FILE:
 # ----------------------------
@@ -23,7 +21,7 @@ name: Rollback
 #
 # KEEP IN SYNC:
 # The environment names used here must match:
-#   - The options list in the deploy workflow(s) for this package
+#   - The options list in rollback.yml
 #   - The HQ_ENVIRONMENTS repository variable
 #   - The location environment names in /data/hq/config.json
 # The check endpoint validates this on every run and fails immediately if
@@ -34,38 +32,36 @@ name: Rollback
 #   all others            — MERGE_APPROVAL_TEAM members only
 #                           (enforced by GitHub Environment protection rules)
 #
-# All rollback logic lives in the shared hq-rollback.yml workflow.
+# All deployment logic lives in the shared hq-deploy-zip.yml workflow.
 # =============================================================================
 
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Environment to roll back
+        description: Target environment
         required: true
         type: choice
         options:
           - bsu-dev
-          - bsu-prod
           - bsu-staging
           - ntc-dev
-          - ntc-prod
           - ntc-staging
       ref:
         description: >
-          Ref to roll back to — release tag, branch name, or commit SHA.
-          Run on the server to see available refs:
-          hq status {package}
+          Release tag to deploy e.g. 2.4.1-rc or 2.4.1.
+          The tag must have a zip asset attached to its GitHub Release.
         required: true
         type: string
 
 jobs:
-  rollback:
-    uses: BemidjiState/.github/.github/workflows/hq-rollback.yml@1.0.1
+  deploy:
+    uses: BemidjiState/.github/.github/workflows/hq-deploy-zip.yml@1.0.0
     with:
       package:           ${{ vars.HQ_PACKAGE }}
       environment:       ${{ inputs.environment }}
       ref:               ${{ inputs.ref }}
       yaml_environments: ${{ vars.HQ_ENVIRONMENTS }}
+      poll_for_result:   true
     secrets:
       hmac_secret:       ${{ secrets.ORG__HQ_HMAC }}
