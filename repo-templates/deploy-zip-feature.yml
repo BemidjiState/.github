@@ -116,25 +116,24 @@ jobs:
           path: node_modules
           key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
 
-      - name: Install dependencies
+      - name: Install theme dependencies securely
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts
+
+      - name: Rebuild required native binaries
         run: |
-          export NPM_SKIP_PREPARE=1
-          export NPM_SKIP_POSTINSTALL=1
-          export NPM_SKIP_PREBUILD=1
-          npm ci
+          # Explicitly allow image optimizers to fetch their Linux binaries
+          npm rebuild cwebp-bin gifsicle mozjpeg optipng-bin pngquant-bin
+          # Explicitly allow native C++/Rust bindings to compile
+          npm rebuild @parcel/watcher unrs-resolver
 
       # -----------------------------------------------------------------------
       # Build step — update to match this package's build command and output
       # directory.
       # -----------------------------------------------------------------------
 
-      - name: Build package
-        run: |
-          export NPM_SKIP_PREPARE=1
-          export NPM_SKIP_POSTINSTALL=1
-          export NPM_SKIP_PREBUILD=1
-          npm run build
+      - name: Build the theme
+        run: npm run build --ignore-scripts
 
       # -----------------------------------------------------------------------
       # Create the deployment zip from the build output directory.
