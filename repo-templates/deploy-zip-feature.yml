@@ -167,10 +167,11 @@ jobs:
             --arg     package     "${{ vars.HQ_PACKAGE }}" \
             --arg     environment "${{ inputs.environment }}" \
             --arg     ref         "${{ github.ref_name }}" \
+            --arg     sha         "${{ github.sha }}" \
             --arg     sender      "${{ github.actor }}" \
             --argjson run_id      "${{ github.run_id }}" \
             '{package: $package, environment: $environment, ref: $ref,
-              delivery: "zip", run_id: $run_id, sender: {login: $sender}}')
+              sha: $sha, delivery: "zip", run_id: $run_id, sender: {login: $sender}}')
 
           SIG="sha256=$(printf '%s' "${PAYLOAD}" | \
             openssl dgst -sha256 -hmac '${{ secrets.ORG__HQ_HMAC }}' | \
