@@ -145,15 +145,14 @@ jobs:
           zip -r feature-build.zip dist/
 
       # -----------------------------------------------------------------------
-      # Upload the zip as an Actions artifact. The artifact name must be
-      # unique enough for HQ to identify it. The run_id is included in the
-      # HQ payload so the server knows which artifact to download.
+      # Upload the zip as an Actions artifact. The artifact name must match
+      # the name HQ looks for when resolving the download from the run_id.
       # -----------------------------------------------------------------------
 
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v4
         with:
-          name: feature-build-${{ github.run_id }}
+          name: feature-build
           path: feature-build.zip
           retention-days: 7
 
