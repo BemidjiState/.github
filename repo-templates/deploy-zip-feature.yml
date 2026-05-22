@@ -1,4 +1,4 @@
-name: Deploy Feature Branch
+name: "CD: Deploy Feature Branch (Manual)"
 
 # =============================================================================
 # Feature branch build and deployment workflow for zip-delivery packages.

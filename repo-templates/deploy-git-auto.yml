@@ -1,4 +1,4 @@
-name: Deploy (Automatic)
+name: "CD: Deploy Release (Auto)"
 
 # =============================================================================
 # Automatic release-based deployment workflow for zip-delivery packages.
