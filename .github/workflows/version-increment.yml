@@ -4,7 +4,7 @@
 # Repos that make use of releases should update version withinin release
 # artifacts rather than directly in committed files.
 
-name: "Calculate semantic version, update files, and create tag"
+name: "Release: Generate Semantic Version"
 description: >
   Calculates a new semantic version based on conventional commits. Updates
   standard project files with the current version, commits them, and adds a tag.
