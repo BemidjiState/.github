@@ -1,4 +1,4 @@
-name: HQ Rollback
+name: "CD: HQ Rollback"
 
 # =============================================================================
 # Shared reusable rollback workflow for git-delivery and zip-delivery packages.

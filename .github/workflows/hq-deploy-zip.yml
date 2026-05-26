@@ -1,4 +1,4 @@
-name: HQ Deploy (Zip)
+name: "CD: HQ Deploy (Zip)"
 
 # =============================================================================
 # Shared reusable deploy workflow for zip-delivery packages.

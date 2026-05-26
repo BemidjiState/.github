@@ -1,4 +1,4 @@
-name: Deploy (Manual)
+name: "CD: Deploy Release (Manual)"
 
 # =============================================================================
 # Manual deployment workflow for git-delivery packages.

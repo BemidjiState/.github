@@ -1,4 +1,4 @@
-name: HQ Deploy (Git)
+name: "CD: HQ Deploy (Git)"
 
 # =============================================================================
 # Shared reusable deploy workflow for git-delivery packages.

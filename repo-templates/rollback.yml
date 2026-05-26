@@ -1,4 +1,4 @@
-name: Rollback
+name: "CD: Rollback"
 
 # =============================================================================
 # Manual rollback workflow. Works for both git-delivery and zip-delivery
