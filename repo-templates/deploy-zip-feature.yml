@@ -109,6 +109,9 @@ jobs:
         with:
           node-version-file: '.nvmrc'
 
+      - name: Enable corepack
+        run: corepack enable
+
       - name: Cache node_modules
         id: cache-node-modules
         uses: actions/cache@v4
