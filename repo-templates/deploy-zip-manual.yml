@@ -1,4 +1,4 @@
-name: "CD: Deploy Release (Manual)"
+name: "CD: Redeploy Release (Manual)"
 
 # =============================================================================
 # Manual deployment workflow for zip-delivery packages.
