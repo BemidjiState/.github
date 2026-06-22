@@ -14,10 +14,10 @@ name: "CD: HQ Deploy (Zip)"
 # by callers that already have it (e.g. deploy-zip-stable.yml, which reads it
 # from the release event payload).
 #
-# Version: 1.0.12
+# Version: 1.0.15
 # Repo:    BemidjiState/.github
 #
-# 1.0.12 — Deploy poll now detects a confirmed background failure (via the
+# 1.0.15 — Deploy poll now detects a confirmed background failure (via the
 #          check endpoint's per-environment failed-job signal) and fails the
 #          run instead of timing out green. Zip asset resolution retries to
 #          ride out the release-publish/asset-upload race. Rollback HTTP

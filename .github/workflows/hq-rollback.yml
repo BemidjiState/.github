@@ -4,10 +4,10 @@ name: "CD: HQ Rollback"
 # Shared reusable rollback workflow for git-delivery and zip-delivery packages.
 # Called by rollback.yml in individual repositories.
 #
-# Version: 1.0.12
+# Version: 1.0.15
 # Repo:    BemidjiState/.github
 #
-# 1.0.12 — Rollback HTTP timeout raised to 300s to match the server's rollback
+# 1.0.15 — Rollback HTTP timeout raised to 300s to match the server's rollback
 #          time limit (a zip rollback may re-download and extract a pruned
 #          release).
 # =============================================================================
