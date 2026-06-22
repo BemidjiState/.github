@@ -14,8 +14,14 @@ name: "CD: HQ Deploy (Zip)"
 # by callers that already have it (e.g. deploy-zip-stable.yml, which reads it
 # from the release event payload).
 #
-# Version: 1.0.11
+# Version: 1.0.12
 # Repo:    BemidjiState/.github
+#
+# 1.0.12 — Deploy poll now detects a confirmed background failure (via the
+#          check endpoint's per-environment failed-job signal) and fails the
+#          run instead of timing out green. Zip asset resolution retries to
+#          ride out the release-publish/asset-upload race. Rollback HTTP
+#          timeout raised to 300s to match the server's rollback time limit.
 # =============================================================================
 
 on:
@@ -332,35 +338,57 @@ jobs:
           fi
 
           # Resolve the tag to a zip asset ID via the GitHub Releases API.
+          # A release published by softprops/action-gh-release fires the
+          # `release: published` event slightly before its zip asset finishes
+          # uploading, so the release can exist with no asset (or not yet be
+          # visible) for a few seconds. Retry briefly to ride out that race
+          # instead of failing the deploy and tripping an unnecessary rollback.
           REF="${{ inputs.ref }}"
           REPO="${{ github.repository }}"
 
           echo "Resolving asset ID for tag: ${REF}"
 
-          HTTP_CODE=$(curl -s -o /tmp/release_response.json -w "%{http_code}" \
-            "https://api.github.com/repos/${REPO}/releases/tags/${REF}" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            --connect-timeout 10 \
-            --max-time 30)
+          ASSET_ID=""
+          ATTEMPTS=6
+          DELAY=5
 
-          if [ "${HTTP_CODE}" != "200" ]; then
-            echo "::error::Could not find release for tag '${REF}' (HTTP ${HTTP_CODE}). Ensure the release exists and the tag is correct."
-            exit 1
-          fi
+          for i in $(seq 1 "${ATTEMPTS}"); do
+            HTTP_CODE=$(curl -s -o /tmp/release_response.json -w "%{http_code}" \
+              "https://api.github.com/repos/${REPO}/releases/tags/${REF}" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --connect-timeout 10 \
+              --max-time 30)
 
-          # Find the first asset with content_type application/zip.
-          ASSET_ID=$(jq -r '
-            .assets[]
-            | select(.content_type == "application/zip")
-            | .id
-            | tostring
-          ' /tmp/release_response.json | head -1)
+            if [ "${HTTP_CODE}" = "200" ]; then
+              # Find the first asset with content_type application/zip.
+              ASSET_ID=$(jq -r '
+                .assets[]
+                | select(.content_type == "application/zip")
+                | .id
+                | tostring
+              ' /tmp/release_response.json | head -1)
+
+              if [ -n "${ASSET_ID}" ] && [ "${ASSET_ID}" != "null" ]; then
+                break
+              fi
+
+              echo "Attempt ${i}/${ATTEMPTS}: release '${REF}' found but its zip asset is not attached yet — retrying in ${DELAY}s..."
+            else
+              echo "Attempt ${i}/${ATTEMPTS}: release '${REF}' not available yet (HTTP ${HTTP_CODE}) — retrying in ${DELAY}s..."
+            fi
+
+            ASSET_ID=""
+            sleep "${DELAY}"
+          done
 
           if [ -z "${ASSET_ID}" ] || [ "${ASSET_ID}" = "null" ]; then
-            echo "::error::No zip asset found in release '${REF}'. Ensure the release has a .zip asset attached."
-            jq -r '.assets[] | "  \(.name) (\(.content_type))"' /tmp/release_response.json
+            echo "::error::No zip asset found for tag '${REF}' after ${ATTEMPTS} attempts."
+            echo "::error::Ensure the release exists and has a .zip asset attached. For a manual redeploy the tag must match an existing release exactly — release candidates are suffixed '-rc' (e.g. '${REF}-rc')."
+            if [ -s /tmp/release_response.json ]; then
+              jq -r '.assets[]? | "  \(.name) (\(.content_type))"' /tmp/release_response.json 2>/dev/null || true
+            fi
             exit 1
           fi
 
@@ -374,6 +402,11 @@ jobs:
       - name: Send deploy webhook
         id: webhook
         run: |
+          # Record the moment just before queueing. The server stamps the spool
+          # file (and therefore any failure) at queue time, so this is the lower
+          # bound the poll uses to tell THIS attempt's failure from an older one.
+          echo "sent_at=$(date -u +%s)" >> "${GITHUB_OUTPUT}"
+
           PAYLOAD=$(jq -nc \
             --arg     package     "${{ inputs.package }}" \
             --arg     environment "${{ inputs.environment }}" \
@@ -488,6 +521,41 @@ jobs:
                 date -j -f "%Y-%m-%dT%H:%M:%S%z" "${DEPLOYED_AT}" +%s 2>/dev/null || echo "0")
             fi
 
+            # Detect a confirmed background failure. Deployment is asynchronous —
+            # the deploy webhook already returned 200 on queue — so a failure
+            # otherwise leaves active_ref unchanged and the poll would run to a
+            # green timeout. HQ records failed jobs and exposes them per
+            # environment; a failure for our target ref newer than this run
+            # started is a real failure, so fail the run immediately.
+            FAILED=$(jq -r --arg env "${ENV}" \
+              '(.locations // {})[$env].failed // false' /tmp/poll_response.json)
+            FAILED_REF=$(jq -r --arg env "${ENV}" \
+              '(.locations // {})[$env].failed_ref // ""' /tmp/poll_response.json)
+            FAILED_AT=$(jq -r --arg env "${ENV}" \
+              '(.locations // {})[$env].failed_at // ""' /tmp/poll_response.json)
+
+            FAILED_EPOCH=0
+            if [ -n "${FAILED_AT}" ]; then
+              FAILED_EPOCH=$(date -d "${FAILED_AT}" +%s 2>/dev/null || \
+                date -j -f "%Y-%m-%dT%H:%M:%S%z" "${FAILED_AT}" +%s 2>/dev/null || echo "0")
+            fi
+
+            # Compare against the webhook send time (when this attempt was
+            # queued), not the poll start, since the failure is stamped at queue
+            # time — before this step runs. A 120s margin absorbs clock skew
+            # between the runner and the server. HQ already only reports `failed`
+            # when the failure is newer than the active release, so this only
+            # distinguishes this attempt from another very recent one.
+            FAIL_THRESHOLD=$(( ${{ steps.webhook.outputs.sent_at }} - 120 ))
+
+            if [ "${FAILED}" = "true" ] && [ "${FAILED_REF}" = "${TARGET_REF}" ] && [ "${FAILED_EPOCH}" -ge "${FAIL_THRESHOLD}" ]; then
+              echo ""
+              echo "::error::Deployment of ${TARGET_REF} to ${ENV} failed on the server (reported at ${FAILED_AT})."
+              echo "Inspect on the server: hq log ${PACKAGE}  |  hq log failed  |  deploy.log"
+              echo "outcome=failure" >> "${GITHUB_OUTPUT}"
+              exit 1
+            fi
+
             if [ "${ACTIVE_REF}" = "${TARGET_REF}" ] && [ "${DEPLOYED_EPOCH}" -ge "${STARTED_AT}" ]; then
               echo "  Deployment confirmed — active ref is ${TARGET_REF}, deployed at ${DEPLOYED_AT} (${ELAPSED}s)"
               echo "outcome=success" >> "${GITHUB_OUTPUT}"
@@ -562,7 +630,7 @@ jobs:
             -H "X-Hub-Signature-256: ${SIG}" \
             -d "${PAYLOAD}" \
             --connect-timeout 10 \
-            --max-time 120)
+            --max-time 300)
 
           echo "Automatic rollback triggered for ${{ inputs.package }} / ${{ inputs.environment }}"
           echo "Rolling back to: ${{ needs.validate.outputs.previous_ref }} (${{ needs.validate.outputs.previous_sha }})"
