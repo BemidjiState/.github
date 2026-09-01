@@ -69,6 +69,13 @@ jobs:
     uses: BemidjiState/.github/.github/workflows/branch-protection-warning.yml@1
 ```
 
+### `release-zip-and-mirror.yml`
+
+Full release pipeline for packages that ship a built zip: semver from conventional commits (`-rc` from `release`, stable on `main`), version stamped into the checkout only, build, zip, GitHub Release with checksums, and an optional stable-only mirror into a releases-only repository. See the [reference](#release-zip-and-mirroryml) and the caller template `repo-templates/create-tag-and-release.yml`.
+
+**Usage in a repo:** copy `repo-templates/create-tag-and-release.yml` to `.github/workflows/` and set the inputs.
+
+
 ### `version-increment.yml`
 
 Automatically calculates a new semantic version string based on conventional commit messages. Updates specified files with the new version, commits them, and creates a tag. Supports updating `package.json`, `style.css`, and WordPress plugin PHP files.
