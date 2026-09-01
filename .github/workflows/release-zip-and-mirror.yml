@@ -20,9 +20,13 @@ name: "Release: Build Zip, Tag, Publish & Mirror"
 # wp-content/plugins/<slug>/; a flat dist/ (HQ strips one leading directory on
 # deploy) works the same way with zip_source: dist.
 #
-# Version: 1.1.1
+# Version: 1.1.2
 # Repo:    BemidjiState/.github
 #
+# 1.1.2 — build-release-zip declares packages: read. An explicit permissions
+#         block zeroes every unlisted scope, so 1.1.1's registry auth sent a
+#         token with packages: none and installs of @bemidjistate/* packages
+#         were refused. Callers must grant packages: read on the job too.
 # 1.1.1 — npm_install authenticates to GitHub Packages with the caller's
 #         GITHUB_TOKEN, so @bemidjistate/* dependencies resolve (the calling
 #         repository must be on the package's Actions access list).
@@ -131,6 +135,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read # required for npm_install of @bemidjistate/* packages; the caller's job must grant it too
     outputs:
       version_string: ${{ steps.valid-version.outputs.version_string }}
 
