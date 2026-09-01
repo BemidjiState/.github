@@ -36,6 +36,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      packages: read # lets npm_install read @bemidjistate/* packages (the package must list the repo under Actions access)
     uses: BemidjiState/.github/.github/workflows/release-zip-and-mirror.yml@1.1.0
     with:
       package: 'my-package' # asset base name: <package>-<version>.zip
