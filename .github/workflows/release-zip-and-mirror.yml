@@ -20,9 +20,12 @@ name: "Release: Build Zip, Tag, Publish & Mirror"
 # wp-content/plugins/<slug>/; a flat dist/ (HQ strips one leading directory on
 # deploy) works the same way with zip_source: dist.
 #
-# Version: 1.1.0
+# Version: 1.1.1
 # Repo:    BemidjiState/.github
 #
+# 1.1.1 — npm_install authenticates to GitHub Packages with the caller's
+#         GITHUB_TOKEN, so @bemidjistate/* dependencies resolve (the calling
+#         repository must be on the package's Actions access list).
 # 1.1.0 — Initial version, extracted from the pipeline proven inline in
 #         BemidjiState/bsuwp-darkmode (see that repo's
 #         create-tag-and-release.yml history for the original).
@@ -275,13 +278,20 @@ jobs:
           git config --global url."https://github.com/${{ github.repository_owner }}".insteadOf "ssh://git@github.com/${{ github.repository_owner }}"
           git config --global url."https://github.com/${{ github.repository_owner }}".insteadOf "git@github.com:${{ github.repository_owner }}"
 
+      # registry-url + scope write the GitHub Packages auth lines so
+      # @bemidjistate/* dependencies resolve with the caller's GITHUB_TOKEN;
+      # harmless for packages that have none.
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@bemidjistate'
 
       - name: Install npm dependencies (scripts skipped)
         if: ${{ inputs.npm_install }}
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
         run: npm ci --ignore-scripts
 
       - name: Build
