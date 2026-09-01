@@ -1,7 +1,23 @@
-# Template — full release pipeline for a zip-artifact package.
-# Copy to .github/workflows/create-tag-and-release.yml in the target repo and
-# adjust the inputs. Requires the release → main branch model.
-name: 'Release: Build, Tag & Publish'
+name: "Release: Build, Tag & Publish"
+
+# =============================================================================
+# Release workflow for a package that ships a built zip.
+# Copy this file to .github/workflows/create-tag-and-release.yml in the target
+# repo and follow the configuration steps below.
+#
+# Requires the release → main branch model: a push to 'release' cuts an
+# X.Y.Z-rc prerelease; merging release → main promotes it to the stable X.Y.Z.
+#
+# HOW TO CONFIGURE THIS FILE:
+# ----------------------------
+# 1. Set 'package' to the asset base name (the zip is <package>-<version>.zip).
+# 2. Point 'zip_source' at the directory the build produces; its basename
+#    becomes the zip's single top-level folder.
+# 3. Enable the version-stamp input for the file this package carries a
+#    version in (wp_plugin_file / style_css / package_json).
+# 4. Set 'mirror_repo' to a releases-only repository to mirror stable
+#    releases, or leave it empty to disable mirroring.
+# =============================================================================
 
 on:
   push:

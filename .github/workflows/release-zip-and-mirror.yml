@@ -1,5 +1,8 @@
+name: "Release: Build Zip, Tag, Publish & Mirror"
+
 # =============================================================================
-# Shared release workflow for zip-artifact packages.
+# Shared reusable release workflow for packages that ship a built zip.
+# Called by create-tag-and-release.yml in individual repositories.
 #
 #   push to release → release candidate (prerelease, "-rc")
 #   push to main    → promote the RC to a stable release, optionally mirroring
@@ -17,13 +20,13 @@
 # wp-content/plugins/<slug>/; a flat dist/ (HQ strips one leading directory on
 # deploy) works the same way with zip_source: dist.
 #
-# First proven by BemidjiState/bsuwp-darkmode; see that repo's
-# create-tag-and-release.yml history for the inlined original.
-#
 # Version: 1.1.0
 # Repo:    BemidjiState/.github
+#
+# 1.1.0 — Initial version, extracted from the pipeline proven inline in
+#         BemidjiState/bsuwp-darkmode (see that repo's
+#         create-tag-and-release.yml history for the original).
 # =============================================================================
-name: 'Release: Build Zip, Tag, Publish & Mirror'
 
 on:
   workflow_call:
