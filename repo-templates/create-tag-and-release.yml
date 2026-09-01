@@ -1,0 +1,56 @@
+name: "Release: Build, Tag & Publish"
+
+# =============================================================================
+# Release workflow for a package that ships a built zip.
+# Copy this file to .github/workflows/create-tag-and-release.yml in the target
+# repo and follow the configuration steps below.
+#
+# Requires the release → main branch model: a push to 'release' cuts an
+# X.Y.Z-rc prerelease; merging release → main promotes it to the stable X.Y.Z.
+#
+# HOW TO CONFIGURE THIS FILE:
+# ----------------------------
+# 1. Set 'package' to the asset base name (the zip is <package>-<version>.zip).
+# 2. Point 'zip_source' at the directory the build produces; its basename
+#    becomes the zip's single top-level folder.
+# 3. Enable the version-stamp input for the file this package carries a
+#    version in (wp_plugin_file / style_css / package_json).
+# 4. Set 'mirror_repo' to a releases-only repository to mirror stable
+#    releases, or leave it empty to disable mirroring.
+# =============================================================================
+
+on:
+  push:
+    branches:
+      - main
+      - release
+  # Re-cut the current branch's release by hand.
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.ref }}-${{ github.workflow }}'
+  cancel-in-progress: true
+
+jobs:
+  release:
+    permissions:
+      contents: write
+      actions: read
+    uses: BemidjiState/.github/.github/workflows/release-zip-and-mirror.yml@1.1.0
+    with:
+      package: 'my-package' # asset base name: <package>-<version>.zip
+      zip_source: 'dist/my-package' # directory the build produces; its basename is the zip's top-level folder
+      build_command: 'npm run build'
+      npm_install: true # false when the build has no dependencies
+      # Version stamping — enable the file(s) this package carries a version in:
+      wp_plugin_file: false # WordPress plugin header; file must be <repo-name>.php
+      wp_plugin_file_dir: 'src/'
+      style_css: false # WordPress theme style.css
+      style_css_dir: ''
+      package_json: false
+      package_json_dir: ''
+      # Mirroring — stable releases only, into a releases-only repository:
+      mirror_repo: '' # e.g. bsuwp-release-assets; empty disables
+    secrets:
+      auth_app_id: ${{ vars.ORG__BSU_RELEASE_BOT_APP_ID }}
+      auth_app_key: ${{ secrets.ORG__BSU_RELEASE_BOT_PRIV_KEY }}

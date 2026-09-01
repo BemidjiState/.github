@@ -1,0 +1,405 @@
+name: "Release: Build Zip, Tag, Publish & Mirror"
+
+# =============================================================================
+# Shared reusable release workflow for packages that ship a built zip.
+# Called by create-tag-and-release.yml in individual repositories.
+#
+#   push to release → release candidate (prerelease, "-rc")
+#   push to main    → promote the RC to a stable release, optionally mirroring
+#                     the assets into a separate releases-only repository for
+#                     consumers who may read releases but not the source.
+#
+# The version is derived from tags (Conventional Commits since the last tag:
+# feat → minor, breaking → major, else patch) and stamped into the named
+# version files in the checkout only — nothing is committed back, so committed
+# placeholders survive and the two branches never fight over a version line.
+#
+# The caller supplies a build command whose output directory is zipped with its
+# basename as the zip's single top-level folder. For a WordPress plugin, point
+# zip_source at dist/<slug> and the zip installs straight into
+# wp-content/plugins/<slug>/; a flat dist/ (HQ strips one leading directory on
+# deploy) works the same way with zip_source: dist.
+#
+# Version: 1.1.0
+# Repo:    BemidjiState/.github
+#
+# 1.1.0 — Initial version, extracted from the pipeline proven inline in
+#         BemidjiState/bsuwp-darkmode (see that repo's
+#         create-tag-and-release.yml history for the original).
+# =============================================================================
+
+on:
+  workflow_call:
+    # The app must have contents read/write; it is in the rulesets' bypass list.
+    secrets:
+      auth_app_id:
+        description: A GitHub app ID.
+        required: true
+      auth_app_key:
+        description: A GitHub app private key.
+        required: true
+
+    inputs:
+      package:
+        description: Asset base name — the zip is <package>-<version>.zip.
+        required: true
+        type: string
+      zip_source:
+        description: >
+          Directory the build produces, zipped so its basename is the zip's
+          single top-level folder (e.g. dist/my-plugin, or dist).
+        required: true
+        type: string
+      build_command:
+        description: Command that produces zip_source.
+        required: false
+        type: string
+        default: 'npm run build'
+      npm_install:
+        description: >
+          Run `npm ci --ignore-scripts` (with git auth for private BSU
+          dependencies) before the build. Off for builds with no dependencies.
+        required: false
+        type: boolean
+        default: false
+      package_json:
+        description: 'Stamp the version into package.json before building.'
+        required: false
+        type: boolean
+        default: false
+      package_json_dir:
+        description: 'Optional. The dir where package.json is located.'
+        required: false
+        type: string
+        default: ''
+      style_css:
+        description: 'Stamp the version into style.css before building.'
+        required: false
+        type: boolean
+        default: false
+      style_css_dir:
+        description: 'Optional. The dir where style.css is located.'
+        required: false
+        type: string
+        default: ''
+      wp_plugin_file:
+        description: 'Stamp the version into the WordPress plugin file before building.'
+        required: false
+        type: boolean
+        default: false
+      wp_plugin_file_dir:
+        description: 'Optional. The dir where the WordPress plugin file is located.'
+        required: false
+        type: string
+        default: ''
+      mirror_repo:
+        description: >
+          Repository name (same owner as the caller) to mirror releases into,
+          tagged <package>@<version> against that repository's history. Empty
+          disables mirroring. The mirrored release is created as a draft, assets
+          attached, then published — safe for repositories with immutable
+          releases.
+        required: false
+        type: string
+        default: ''
+      mirror_stable_only:
+        description: Mirror only stable releases (skip -rc prereleases).
+        required: false
+        type: boolean
+        default: true
+      mirror_target_ref:
+        description: Ref or SHA in the mirror repository the tag is created on.
+        required: false
+        type: string
+        default: 'main'
+
+    outputs:
+      version_string:
+        description: The version that was released.
+        value: ${{ jobs.build-release-zip.outputs.version_string }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: compute the version, stamp it, build, zip. No external state.
+  # ---------------------------------------------------------------------------
+  build-release-zip:
+    name: Build Release Zip
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version_string: ${{ steps.valid-version.outputs.version_string }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub app token
+        id: generate-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.auth_app_id }}
+          private-key: ${{ secrets.auth_app_key }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.generate-token.outputs.token }}
+
+      - name: Determine base version and prerelease status
+        id: get-base-version
+        run: |
+          # Latest semver tag reachable from HEAD. Major limited to 1-3 digits
+          # so date-style tags are excluded. Falls back to 0.0.0.
+          latest_tag=$(
+            git tag --sort=-version:refname --merged HEAD \
+              | grep -E '^[0-9]{1,3}\.[0-9]+\.[0-9]+(-rc)?$' \
+              | head -n 1
+          )
+          latest_tag=${latest_tag:-0.0.0}
+
+          # Strip "-rc" and anything after it. Results in the current semver.
+          clean_version="${latest_tag%-rc*}"
+
+          is_prerelease=false
+
+          # If the latest tag is a prerelease, flag it. Off the default branch,
+          # drop a temporary local stable tag on the -rc commit so the bump
+          # below calculates from the right base.
+          if [[ "$latest_tag" == *-rc* ]]; then
+            is_prerelease=true
+            if [ "${{ github.ref_name }}" != "${{ github.event.repository.default_branch }}" ]; then
+              tag_commit=$(git rev-list -n 1 "$latest_tag")
+              git tag -f "$clean_version" "$tag_commit"
+              echo "Created temporary local tag $clean_version at $tag_commit"
+            fi
+          fi
+
+          echo "Found latest tag: $latest_tag"
+          echo "initial_version=$clean_version" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Calculate version
+        id: calculate-version
+        # Bump semver on every release-branch push, including the first (no RC
+        # yet) — the bump reads from the fallback when there are no tags.
+        if: ${{ 'release' == github.ref_name }}
+        run: |
+          base_version="${{ steps.get-base-version.outputs.initial_version }}"
+          IFS='.' read -r major minor patch <<< "$base_version"
+
+          last_tag=$(git tag --sort=-version:refname --merged HEAD \
+            | grep -E '^[0-9]{1,3}\.[0-9]+\.[0-9]+(-rc)?$' \
+            | head -n 1)
+
+          if [ -n "$last_tag" ]; then
+            commit_range="${last_tag}..HEAD"
+          else
+            commit_range="HEAD"
+          fi
+
+          # feat/breaking bumps minor/major; everything else bumps patch.
+          bump_type="patch"
+          if git log "$commit_range" --format="%B" 2>/dev/null \
+            | grep -qiE '^BREAKING[[:space:]]+CHANGE|^feat(\(.+\))?!:|^feat(\(.+\))?:'; then
+            if git log "$commit_range" --format="%B" 2>/dev/null \
+              | grep -qiE '^BREAKING[[:space:]]+CHANGE|!:'; then
+              bump_type="major"
+            else
+              bump_type="minor"
+            fi
+          fi
+
+          if [ "$bump_type" = "major" ]; then
+            major=$((major + 1)); minor=0; patch=0
+          elif [ "$bump_type" = "minor" ]; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          version_string="${major}.${minor}.${patch}"
+          echo "Bump type: $bump_type -> $version_string"
+          echo "version-string=$version_string" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version and append -rc on a prerelease
+        id: valid-version
+        run: |
+          # Promoting an existing RC to stable on the default branch?
+          if [ "${{ github.ref_name }}" == "${{ github.event.repository.default_branch }}" ] && [ "true" == "${{ steps.get-base-version.outputs.is_prerelease }}" ]; then
+            version_string="${{ steps.get-base-version.outputs.initial_version }}"
+            echo "Promoting prerelease to stable."
+          else
+            if [ -z "${{ steps.calculate-version.outputs.version-string }}" ]; then
+              echo "Error: version-string is empty! A version string was not calculated."
+              exit 1
+            fi
+            version_string="${{ steps.calculate-version.outputs.version-string }}"
+            if [ "${{ github.ref_name }}" != "${{ github.event.repository.default_branch }}" ]; then
+              if [[ "$version_string" != *-rc* ]]; then
+                version_string="${version_string}-rc"
+              fi
+            fi
+            echo "Generating a prerelease."
+          fi
+
+          echo "Version to be used: ${version_string}"
+          echo "version_string=$version_string" >> "$GITHUB_OUTPUT"
+
+      # Stamps happen in the checkout only; nothing is committed back.
+      - name: Stamp the version into the project files
+        if: ${{ inputs.package_json || inputs.style_css || inputs.wp_plugin_file }}
+        uses: BemidjiState/.github/.github/actions/version-update-files@1.0.9
+        with:
+          version: ${{ steps.valid-version.outputs.version_string }}
+          package_json: ${{ inputs.package_json }}
+          package_json_dir: ${{ inputs.package_json_dir }}
+          style_css: ${{ inputs.style_css }}
+          style_css_dir: ${{ inputs.style_css_dir }}
+          wp_plugin_file: ${{ inputs.wp_plugin_file }}
+          wp_plugin_file_dir: ${{ inputs.wp_plugin_file_dir }}
+
+      # Map the SSH dependency URLs to authenticated HTTPS so npm ci can fetch
+      # private BSU dependencies.
+      - name: Set up Git authentication for private dependencies
+        if: ${{ inputs.npm_install }}
+        run: |
+          cat << EOF > ~/.netrc
+          machine github.com
+          login x-access-token
+          password ${{ steps.generate-token.outputs.token }}
+          EOF
+          chmod 600 ~/.netrc
+          git config --global url."https://github.com/${{ github.repository_owner }}".insteadOf "ssh://git@github.com/${{ github.repository_owner }}"
+          git config --global url."https://github.com/${{ github.repository_owner }}".insteadOf "git@github.com:${{ github.repository_owner }}"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install npm dependencies (scripts skipped)
+        if: ${{ inputs.npm_install }}
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        run: ${{ inputs.build_command }}
+
+      # The zip's single top-level folder is zip_source's basename.
+      - name: Create release artifact
+        run: |
+          version="${{ steps.valid-version.outputs.version_string }}"
+          source_dir="${{ inputs.zip_source }}"
+          (cd "$(dirname "$source_dir")" && zip -r "${GITHUB_WORKSPACE}/${{ inputs.package }}-${version}.zip" "$(basename "$source_dir")")
+          sha256sum "${{ inputs.package }}-${version}.zip" | tee checksums.sha256
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-package
+          path: |
+            *.zip
+            checksums.sha256
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Job 2: create the GitHub Release + tag in the calling repository.
+  # ---------------------------------------------------------------------------
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: build-release-zip
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub app token
+        id: generate-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.auth_app_id }}
+          private-key: ${{ secrets.auth_app_key }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Download release package
+        uses: actions/download-artifact@v8
+        with:
+          name: release-package
+
+      - name: Create the release and tag
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: false
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ github.ref_name != github.event.repository.default_branch }}
+          generate_release_notes: true
+          tag_name: ${{ needs.build-release-zip.outputs.version_string }}
+          token: ${{ steps.generate-token.outputs.token }}
+          fail_on_unmatched_files: true
+          files: |
+            *.zip
+            *.sha256
+
+  # ---------------------------------------------------------------------------
+  # Job 3 (optional): mirror the same assets into a releases-only repository,
+  # tagged <package>@<version>. Draft → attach → publish, so a repository with
+  # immutable releases can never lock a release before its assets are in place.
+  # ---------------------------------------------------------------------------
+  mirror-release-assets:
+    name: Mirror to release assets
+    needs: [build-release-zip, publish-github-release]
+    if: >-
+      inputs.mirror_repo != '' &&
+      (inputs.mirror_stable_only == false ||
+       github.ref_name == github.event.repository.default_branch)
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    runs-on: ubuntu-latest
+    steps:
+      # Scoped to the mirror repository only: this token writes releases there
+      # and nowhere else.
+      - name: Generate GitHub app token for the mirror repository
+        id: mirror-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.auth_app_id }}
+          private-key: ${{ secrets.auth_app_key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ inputs.mirror_repo }}
+
+      - name: Download release package
+        uses: actions/download-artifact@v8
+        with:
+          name: release-package
+
+      - name: Create the mirrored release as a draft
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: ${{ github.repository_owner }}/${{ inputs.mirror_repo }}
+          token: ${{ steps.mirror-token.outputs.token }}
+          tag_name: ${{ inputs.package }}@${{ needs.build-release-zip.outputs.version_string }}
+          name: ${{ inputs.package }} ${{ needs.build-release-zip.outputs.version_string }}
+          target_commitish: ${{ inputs.mirror_target_ref }}
+          draft: true
+          prerelease: false
+          make_latest: false
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+          body: |
+            Built release of **${{ inputs.package }} ${{ needs.build-release-zip.outputs.version_string }}**, mirrored from
+            https://github.com/${{ github.repository }}/releases/tag/${{ needs.build-release-zip.outputs.version_string }}
+          files: |
+            *.zip
+            *.sha256
+
+      - name: Publish the mirrored release
+        env:
+          GH_TOKEN: ${{ steps.mirror-token.outputs.token }}
+        run: |
+          gh release edit "${{ inputs.package }}@${{ needs.build-release-zip.outputs.version_string }}" \
+            --repo "${{ github.repository_owner }}/${{ inputs.mirror_repo }}" --draft=false

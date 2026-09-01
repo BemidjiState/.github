@@ -69,6 +69,13 @@ jobs:
     uses: BemidjiState/.github/.github/workflows/branch-protection-warning.yml@1
 ```
 
+### `release-zip-and-mirror.yml`
+
+Full release pipeline for packages that ship a built zip: semver from conventional commits (`-rc` from `release`, stable on `main`), version stamped into the checkout only, build, zip, GitHub Release with checksums, and an optional stable-only mirror into a releases-only repository. See the [reference](#release-zip-and-mirroryml) and the caller template `repo-templates/create-tag-and-release.yml`.
+
+**Usage in a repo:** copy `repo-templates/create-tag-and-release.yml` to `.github/workflows/` and set the inputs.
+
+
 ### `version-increment.yml`
 
 Automatically calculates a new semantic version string based on conventional commit messages. Updates specified files with the new version, commits them, and creates a tag. Supports updating `package.json`, `style.css`, and WordPress plugin PHP files.
@@ -307,7 +314,7 @@ Then update the version reference in each caller repo's workflow files from the 
 
 ### Current Version
 
-The current shared workflow version is `1.0.11`. All repo-level caller workflows should reference `@1.0.11`.
+The current shared workflow version is `1.1.0`. New caller workflows should reference `@1.1.0`; existing callers keep working on the tag they pin.
 
 ---
 
@@ -493,6 +500,33 @@ Enforces that merges to a primary branch only come from the `release` branch.
 | `primary_branch` | No | `main` | The branch to protect |
 
 ---
+
+### `release-zip-and-mirror.yml`
+
+Full release pipeline for packages that ship a built zip, on the `release` → `main` branch model: semver from conventional commits (`X.Y.Z-rc` from `release`, promoted to `X.Y.Z` on `main`), version stamped into the checkout only (committed placeholders survive), build, zip with the package folder as its single top level, GitHub Release with `checksums.sha256`, and an optional stable-only mirror into a releases-only repository tagged `<package>@<version>` (draft → attach assets → publish, safe under immutable releases). Called by `create-tag-and-release.yml` in individual repositories; first proven by `BemidjiState/bsuwp-darkmode`.
+
+**Inputs:**
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `package` | Yes | — | Asset base name — the zip is `<package>-<version>.zip` |
+| `zip_source` | Yes | — | Directory the build produces; its basename becomes the zip's top-level folder |
+| `build_command` | No | `npm run build` | Command that produces `zip_source` |
+| `npm_install` | No | `false` | Run `npm ci --ignore-scripts` (with git auth for private BSU dependencies) before the build |
+| `package_json` / `package_json_dir` | No | `false` / `''` | Stamp the version into `package.json` before building |
+| `style_css` / `style_css_dir` | No | `false` / `''` | Stamp the version into `style.css` before building |
+| `wp_plugin_file` / `wp_plugin_file_dir` | No | `false` / `''` | Stamp the version into the WordPress plugin file (named `<repo>.php`) before building |
+| `mirror_repo` | No | `''` | Repository name (same owner) to mirror stable releases into; empty disables |
+| `mirror_stable_only` | No | `true` | Mirror only stable releases (skip `-rc` prereleases) |
+| `mirror_target_ref` | No | `main` | Ref in the mirror repository the `<package>@<version>` tag is created on |
+
+**Outputs:** `version_string` — the version that was released.
+
+**Secrets:** `auth_app_id`, `auth_app_key` — pass `${{ vars.ORG__BSU_RELEASE_BOT_APP_ID }}` and `${{ secrets.ORG__BSU_RELEASE_BOT_PRIV_KEY }}`
+
+**Jobs:** `build-release-zip` → `publish-github-release` → `mirror-release-assets` (stable releases only, when `mirror_repo` is set)
+
+**Caller template:** `repo-templates/create-tag-and-release.yml`
 
 ### `version-increment.yml`
 
