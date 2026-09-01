@@ -307,7 +307,7 @@ Then update the version reference in each caller repo's workflow files from the 
 
 ### Current Version
 
-The current shared workflow version is `1.0.11`. All repo-level caller workflows should reference `@1.0.11`.
+The current shared workflow version is `1.1.0`. New caller workflows should reference `@1.1.0`; existing callers keep working on the tag they pin.
 
 ---
 
@@ -493,6 +493,15 @@ Enforces that merges to a primary branch only come from the `release` branch.
 | `primary_branch` | No | `main` | The branch to protect |
 
 ---
+
+### `release-zip-and-mirror.yml`
+
+Full release pipeline for zip-artifact packages on the `release` → `main` branch model: derives the next semver from Conventional Commits since the last tag (`X.Y.Z-rc` from `release`, promoted to `X.Y.Z` on `main`), stamps it into the named version files in the checkout only (nothing is committed back — committed placeholders survive), runs the caller's build, zips the output directory with its basename as the zip's single top-level folder, publishes the release with the zip and a `checksums.sha256`, and — optionally — mirrors stable releases into a releases-only repository tagged `<package>@<version>` (draft → attach assets → publish, safe under immutable releases). First proven by `BemidjiState/bsuwp-darkmode`.
+
+**Inputs:** `package` (required, asset base name) · `zip_source` (required, directory to zip, e.g. `dist/my-plugin`) · `build_command` (default `npm run build`) · `npm_install` (default false; adds git auth for private BSU dependencies and `npm ci --ignore-scripts`) · `package_json` / `style_css` / `wp_plugin_file` + `*_dir` (version stamping, as in `version-increment.yml`) · `mirror_repo` (default empty = no mirror) · `mirror_stable_only` (default true) · `mirror_target_ref` (default `main`).
+**Secrets:** `auth_app_id`, `auth_app_key`.
+**Outputs:** `version_string`.
+**Caller template:** `repo-templates/create-tag-and-release.yml`.
 
 ### `version-increment.yml`
 
