@@ -503,12 +503,30 @@ Enforces that merges to a primary branch only come from the `release` branch.
 
 ### `release-zip-and-mirror.yml`
 
-Full release pipeline for zip-artifact packages on the `release` → `main` branch model: derives the next semver from Conventional Commits since the last tag (`X.Y.Z-rc` from `release`, promoted to `X.Y.Z` on `main`), stamps it into the named version files in the checkout only (nothing is committed back — committed placeholders survive), runs the caller's build, zips the output directory with its basename as the zip's single top-level folder, publishes the release with the zip and a `checksums.sha256`, and — optionally — mirrors stable releases into a releases-only repository tagged `<package>@<version>` (draft → attach assets → publish, safe under immutable releases). First proven by `BemidjiState/bsuwp-darkmode`.
+Full release pipeline for packages that ship a built zip, on the `release` → `main` branch model: semver from conventional commits (`X.Y.Z-rc` from `release`, promoted to `X.Y.Z` on `main`), version stamped into the checkout only (committed placeholders survive), build, zip with the package folder as its single top level, GitHub Release with `checksums.sha256`, and an optional stable-only mirror into a releases-only repository tagged `<package>@<version>` (draft → attach assets → publish, safe under immutable releases). Called by `create-tag-and-release.yml` in individual repositories; first proven by `BemidjiState/bsuwp-darkmode`.
 
-**Inputs:** `package` (required, asset base name) · `zip_source` (required, directory to zip, e.g. `dist/my-plugin`) · `build_command` (default `npm run build`) · `npm_install` (default false; adds git auth for private BSU dependencies and `npm ci --ignore-scripts`) · `package_json` / `style_css` / `wp_plugin_file` + `*_dir` (version stamping, as in `version-increment.yml`) · `mirror_repo` (default empty = no mirror) · `mirror_stable_only` (default true) · `mirror_target_ref` (default `main`).
-**Secrets:** `auth_app_id`, `auth_app_key`.
-**Outputs:** `version_string`.
-**Caller template:** `repo-templates/create-tag-and-release.yml`.
+**Inputs:**
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `package` | Yes | — | Asset base name — the zip is `<package>-<version>.zip` |
+| `zip_source` | Yes | — | Directory the build produces; its basename becomes the zip's top-level folder |
+| `build_command` | No | `npm run build` | Command that produces `zip_source` |
+| `npm_install` | No | `false` | Run `npm ci --ignore-scripts` (with git auth for private BSU dependencies) before the build |
+| `package_json` / `package_json_dir` | No | `false` / `''` | Stamp the version into `package.json` before building |
+| `style_css` / `style_css_dir` | No | `false` / `''` | Stamp the version into `style.css` before building |
+| `wp_plugin_file` / `wp_plugin_file_dir` | No | `false` / `''` | Stamp the version into the WordPress plugin file (named `<repo>.php`) before building |
+| `mirror_repo` | No | `''` | Repository name (same owner) to mirror stable releases into; empty disables |
+| `mirror_stable_only` | No | `true` | Mirror only stable releases (skip `-rc` prereleases) |
+| `mirror_target_ref` | No | `main` | Ref in the mirror repository the `<package>@<version>` tag is created on |
+
+**Outputs:** `version_string` — the version that was released.
+
+**Secrets:** `auth_app_id`, `auth_app_key` — pass `${{ vars.ORG__BSU_RELEASE_BOT_APP_ID }}` and `${{ secrets.ORG__BSU_RELEASE_BOT_PRIV_KEY }}`
+
+**Jobs:** `build-release-zip` → `publish-github-release` → `mirror-release-assets` (stable releases only, when `mirror_repo` is set)
+
+**Caller template:** `repo-templates/create-tag-and-release.yml`
 
 ### `version-increment.yml`
 
