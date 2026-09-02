@@ -37,10 +37,11 @@ jobs:
       contents: write
       actions: read
       packages: read # lets npm_install read @bemidjistate/* packages (the package must list the repo under Actions access)
-    uses: BemidjiState/.github/.github/workflows/release-zip-and-mirror.yml@1.1.0
+    uses: BemidjiState/.github/.github/workflows/release-zip-and-mirror.yml@1.2.0
     with:
       package: 'my-package' # asset base name: <package>-<version>.zip
-      zip_source: 'dist/my-package' # directory the build produces; its basename is the zip's top-level folder
+      zip_source: 'dist/my-package' # directory the build produces; its basename is the zip's top-level folder. Optional when extra_assets is set.
+      # extra_assets: 'dist/my-package.selectors.txt' # newline-separated build-produced files attached as they are
       build_command: 'npm run build'
       npm_install: true # false when the build has no dependencies
       # Version stamping — enable the file(s) this package carries a version in:
