@@ -37,11 +37,13 @@ jobs:
       contents: write
       actions: read
       packages: read # lets npm_install read @bemidjistate/* packages (the package must list the repo under Actions access)
-    uses: BemidjiState/.github/.github/workflows/release-zip-and-mirror.yml@1.2.0
+    uses: BemidjiState/.github/.github/workflows/release-zip-and-mirror.yml@1.3.0
     with:
       package: 'my-package' # asset base name: <package>-<version>.zip
       zip_source: 'dist/my-package' # directory the build produces; its basename is the zip's top-level folder. Optional when extra_assets is set.
-      # extra_assets: 'dist/my-package.selectors.txt' # newline-separated build-produced files attached as they are
+      # extra_assets: 'my-package.selectors.txt' # newline-separated build-produced files attached as they are
+      # selectors_repo: 'bsuwp-release-assets' # carrier repo for committed selector extracts (stable only, diff-only)
+      # selectors_file: 'my-package.selectors.txt' # must also be listed in extra_assets
       build_command: 'npm run build'
       npm_install: true # false when the build has no dependencies
       # Version stamping — enable the file(s) this package carries a version in:
