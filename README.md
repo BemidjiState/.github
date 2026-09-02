@@ -71,7 +71,7 @@ jobs:
 
 ### `release-zip-and-mirror.yml`
 
-Full release pipeline for packages that ship a built zip: semver from conventional commits (`-rc` from `release`, stable on `main`), version stamped into the checkout only, build, zip, GitHub Release with checksums, and an optional stable-only mirror into a releases-only repository. See the [reference](#release-zip-and-mirroryml) and the caller template `repo-templates/create-tag-and-release.yml`.
+Full release pipeline for packages that ship built assets — a zip, standalone files, or both: semver from conventional commits (`-rc` from `release`, stable on `main`), version stamped into the checkout only, build, zip and/or extra assets, GitHub Release with checksums, and an optional stable-only mirror into a releases-only repository. See the [reference](#release-zip-and-mirroryml) and the caller template `repo-templates/create-tag-and-release.yml`.
 
 **Usage in a repo:** copy `repo-templates/create-tag-and-release.yml` to `.github/workflows/` and set the inputs.
 
@@ -503,15 +503,16 @@ Enforces that merges to a primary branch only come from the `release` branch.
 
 ### `release-zip-and-mirror.yml`
 
-Full release pipeline for packages that ship a built zip, on the `release` → `main` branch model: semver from conventional commits (`X.Y.Z-rc` from `release`, promoted to `X.Y.Z` on `main`), version stamped into the checkout only (committed placeholders survive), build, zip with the package folder as its single top level, GitHub Release with `checksums.sha256`, and an optional stable-only mirror into a releases-only repository tagged `<package>@<version>` (draft → attach assets → publish, safe under immutable releases). Called by `create-tag-and-release.yml` in individual repositories; first proven by `BemidjiState/bsuwp-darkmode`.
+Full release pipeline for packages that ship built assets — a zip, standalone files, or both — on the `release` → `main` branch model: semver from conventional commits (`X.Y.Z-rc` from `release`, promoted to `X.Y.Z` on `main`), version stamped into the checkout only (committed placeholders survive), build, a zip with the package folder as its single top level and/or standalone files listed in `extra_assets`, GitHub Release with one `checksums.sha256` covering everything attached, and an optional stable-only mirror into a releases-only repository tagged `<package>@<version>` (draft → attach assets → publish, safe under immutable releases). Called by `create-tag-and-release.yml` in individual repositories; first proven by `BemidjiState/bsuwp-darkmode`.
 
 **Inputs:**
 
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `package` | Yes | — | Asset base name — the zip is `<package>-<version>.zip` |
-| `zip_source` | Yes | — | Directory the build produces; its basename becomes the zip's top-level folder |
-| `build_command` | No | `npm run build` | Command that produces `zip_source` |
+| `zip_source` | No | `''` | Directory the build produces; its basename becomes the zip's top-level folder. Empty skips the zip — `extra_assets` must then supply the assets |
+| `extra_assets` | No | `''` | Newline-separated paths of build-produced files attached to the release (and mirrored) as they are |
+| `build_command` | No | `npm run build` | Command that produces `zip_source` / `extra_assets` |
 | `npm_install` | No | `false` | Run `npm ci --ignore-scripts` (with git auth for private BSU dependencies) before the build |
 | `package_json` / `package_json_dir` | No | `false` / `''` | Stamp the version into `package.json` before building |
 | `style_css` / `style_css_dir` | No | `false` / `''` | Stamp the version into `style.css` before building |

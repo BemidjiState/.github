@@ -1,8 +1,9 @@
 name: "Release: Build Zip, Tag, Publish & Mirror"
 
 # =============================================================================
-# Shared reusable release workflow for packages that ship a built zip.
-# Called by create-tag-and-release.yml in individual repositories.
+# Shared reusable release workflow for packages that ship built assets — a
+# zip, standalone files, or both. Called by create-tag-and-release.yml in
+# individual repositories.
 #
 #   push to release → release candidate (prerelease, "-rc")
 #   push to main    → promote the RC to a stable release, optionally mirroring
@@ -14,15 +15,22 @@ name: "Release: Build Zip, Tag, Publish & Mirror"
 # version files in the checkout only — nothing is committed back, so committed
 # placeholders survive and the two branches never fight over a version line.
 #
-# The caller supplies a build command whose output directory is zipped with its
+# The caller supplies a build command and at least one of zip_source and
+# extra_assets. zip_source is a directory the build produces, zipped with its
 # basename as the zip's single top-level folder. For a WordPress plugin, point
 # zip_source at dist/<slug> and the zip installs straight into
 # wp-content/plugins/<slug>/; a flat dist/ (HQ strips one leading directory on
-# deploy) works the same way with zip_source: dist.
+# deploy) works the same way with zip_source: dist. extra_assets lists files
+# the build produced that are attached to the release as they are (and
+# mirrored), for packages whose artifact is a file rather than a zip.
 #
-# Version: 1.1.2
+# Version: 1.2.0
 # Repo:    BemidjiState/.github
 #
+# 1.2.0 — zip_source is optional and a new extra_assets input attaches
+#         standalone build outputs; at least one of the two must be supplied.
+#         Assets are staged into release-assets/ with one checksums.sha256
+#         covering everything attached.
 # 1.1.2 — build-release-zip declares packages: read. An explicit permissions
 #         block zeroes every unlisted scope, so 1.1.1's registry auth sent a
 #         token with packages: none and installs of @bemidjistate/* packages
@@ -54,11 +62,21 @@ on:
       zip_source:
         description: >
           Directory the build produces, zipped so its basename is the zip's
-          single top-level folder (e.g. dist/my-plugin, or dist).
-        required: true
+          single top-level folder (e.g. dist/my-plugin, or dist). Empty skips
+          the zip; extra_assets must then supply the release's assets.
+        required: false
         type: string
+        default: ''
+      extra_assets:
+        description: >
+          Newline-separated paths of files the build produces, attached to the
+          release (and mirrored) as they are. Each listed file must exist
+          after the build.
+        required: false
+        type: string
+        default: ''
       build_command:
-        description: Command that produces zip_source.
+        description: Command that produces zip_source / extra_assets.
         required: false
         type: string
         default: 'npm run build'
@@ -303,20 +321,42 @@ jobs:
         run: ${{ inputs.build_command }}
 
       # The zip's single top-level folder is zip_source's basename.
-      - name: Create release artifact
+      - name: Create release zip
+        if: ${{ inputs.zip_source != '' }}
         run: |
           version="${{ steps.valid-version.outputs.version_string }}"
           source_dir="${{ inputs.zip_source }}"
           (cd "$(dirname "$source_dir")" && zip -r "${GITHUB_WORKSPACE}/${{ inputs.package }}-${version}.zip" "$(basename "$source_dir")")
-          sha256sum "${{ inputs.package }}-${version}.zip" | tee checksums.sha256
+
+      # Everything attached to the release passes through release-assets/:
+      # the zip (when built), each extra_assets file, and one checksum file
+      # covering all of them. An empty staging directory means the caller
+      # supplied neither zip_source nor extra_assets — fail loudly.
+      - name: Stage release assets
+        run: |
+          mkdir release-assets
+          if [ -n "${{ inputs.zip_source }}" ]; then
+            mv "${{ inputs.package }}-${{ steps.valid-version.outputs.version_string }}.zip" release-assets/
+          fi
+          while IFS= read -r asset; do
+            [ -z "$asset" ] && continue
+            if [ ! -f "$asset" ]; then
+              echo "Error: extra_assets file not found after build: $asset"
+              exit 1
+            fi
+            cp "$asset" release-assets/
+          done <<< "${{ inputs.extra_assets }}"
+          if [ -z "$(ls -A release-assets)" ]; then
+            echo "Error: nothing to release — supply zip_source and/or extra_assets."
+            exit 1
+          fi
+          (cd release-assets && sha256sum * | tee checksums.sha256)
 
       - name: Upload release package
         uses: actions/upload-artifact@v7
         with:
           name: release-package
-          path: |
-            *.zip
-            checksums.sha256
+          path: release-assets/
           retention-days: 1
 
   # ---------------------------------------------------------------------------
@@ -354,9 +394,7 @@ jobs:
           tag_name: ${{ needs.build-release-zip.outputs.version_string }}
           token: ${{ steps.generate-token.outputs.token }}
           fail_on_unmatched_files: true
-          files: |
-            *.zip
-            *.sha256
+          files: '*'
 
   # ---------------------------------------------------------------------------
   # Job 3 (optional): mirror the same assets into a releases-only repository,
@@ -408,9 +446,7 @@ jobs:
           body: |
             Built release of **${{ inputs.package }} ${{ needs.build-release-zip.outputs.version_string }}**, mirrored from
             https://github.com/${{ github.repository }}/releases/tag/${{ needs.build-release-zip.outputs.version_string }}
-          files: |
-            *.zip
-            *.sha256
+          files: '*'
 
       - name: Publish the mirrored release
         env:
