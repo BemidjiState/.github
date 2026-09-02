@@ -24,9 +24,17 @@ name: "Release: Build Zip, Tag, Publish & Mirror"
 # the build produced that are attached to the release as they are (and
 # mirrored), for packages whose artifact is a file rather than a zip.
 #
-# Version: 1.2.0
+# Version: 1.3.0
 # Repo:    BemidjiState/.github
 #
+# 1.3.0 — optional publish-selectors job: commits one build-produced
+#         selectors file into a carrier repository's selectors/ directory and
+#         tags it in the selectors@X.Y.Z namespace (the carrier's own
+#         patch-bumped semver, independent of this package's version).
+#         Diff-only (an unchanged file publishes nothing), stable releases
+#         only, bounded rebase-retry for concurrent producers. The carrier
+#         lane uses plain git tags and must never create release objects on
+#         them — with immutable releases enabled they would be locked.
 # 1.2.0 — zip_source is optional and a new extra_assets input attaches
 #         standalone build outputs; at least one of the two must be supplied.
 #         Assets are staged into release-assets/ with one checksums.sha256
@@ -137,6 +145,23 @@ on:
         required: false
         type: string
         default: 'main'
+      selectors_repo:
+        description: >
+          Repository name (same owner as the caller) holding committed
+          PurgeCSS selector extracts under selectors/. Stable releases commit
+          the selectors_file there and tag selectors@X.Y.Z when the content
+          changed. Empty disables.
+        required: false
+        type: string
+        default: ''
+      selectors_file:
+        description: >
+          Basename of the selectors file among this release's assets (it must
+          also be listed in extra_assets so the build stages it), e.g.
+          my-app.selectors.txt.
+        required: false
+        type: string
+        default: ''
 
     outputs:
       version_string:
@@ -454,3 +479,97 @@ jobs:
         run: |
           gh release edit "${{ inputs.package }}@${{ needs.build-release-zip.outputs.version_string }}" \
             --repo "${{ github.repository_owner }}/${{ inputs.mirror_repo }}" --draft=false
+
+  # ---------------------------------------------------------------------------
+  # Job 4 (optional): commit the selectors extract into the carrier repository
+  # and tag it in the selectors@X.Y.Z namespace. Consumers pin the tag as a
+  # git dependency committish. Diff-only: an unchanged file publishes nothing,
+  # so no-op releases never churn the consumers' pin. Plain tags only — never
+  # create a release object on a selectors@ tag (immutable releases would
+  # lock it). Concurrent producers race on pushes to main; a bounded
+  # rebase-retry with jitter absorbs it.
+  # ---------------------------------------------------------------------------
+  publish-selectors:
+    name: Publish selectors to the carrier
+    needs: [build-release-zip, publish-github-release]
+    if: >-
+      inputs.selectors_repo != '' &&
+      inputs.selectors_file != '' &&
+      github.ref_name == github.event.repository.default_branch
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    runs-on: ubuntu-latest
+    steps:
+      # Scoped to the carrier repository only.
+      - name: Generate GitHub app token for the carrier repository
+        id: carrier-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.auth_app_id }}
+          private-key: ${{ secrets.auth_app_key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ inputs.selectors_repo }}
+
+      - name: Download release package
+        uses: actions/download-artifact@v8
+        with:
+          name: release-package
+
+      - name: Commit and tag the selectors when they changed
+        env:
+          GH_TOKEN: ${{ steps.carrier-token.outputs.token }}
+        run: |
+          file="${{ inputs.selectors_file }}"
+          if [ ! -f "$file" ]; then
+            echo "Error: selectors_file '$file' is not among the staged release assets — list it in extra_assets."
+            exit 1
+          fi
+
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          carrier_url="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/${{ inputs.selectors_repo }}.git"
+
+          # Bounded rebase-retry: concurrent producers race on main, so on a
+          # rejected push, re-clone and redo the whole decision (the diff
+          # check and the version calculation both depend on current state).
+          for attempt in 1 2 3; do
+            rm -rf carrier
+            git clone --quiet --depth 1 --no-single-branch "$carrier_url" carrier
+
+            if [ -f "carrier/selectors/$file" ] && cmp -s "$file" "carrier/selectors/$file"; then
+              echo "Selectors unchanged — nothing to publish."
+              exit 0
+            fi
+
+            mkdir -p carrier/selectors
+            cp "$file" "carrier/selectors/$file"
+
+            # The carrier's own patch-bumped semver, independent of the
+            # calling package's version. Provenance goes in the subject.
+            git -C carrier fetch --quiet --tags
+            latest=$(git -C carrier tag -l 'selectors@[0-9]*.[0-9]*.[0-9]*' | sed 's/^selectors@//' | sort -V | tail -n 1)
+            if [ -z "$latest" ]; then
+              next="1.0.0"
+            else
+              IFS='.' read -r major minor patch <<< "$latest"
+              next="${major}.${minor}.$((patch + 1))"
+            fi
+
+            git -C carrier add "selectors/$file"
+            git -C carrier commit --quiet -m "selectors: ${{ inputs.package }}@${{ needs.build-release-zip.outputs.version_string }}"
+            git -C carrier tag "selectors@${next}"
+
+            if git -C carrier push --quiet origin main "selectors@${next}"; then
+              echo "Published selectors@${next} (${{ inputs.package }}@${{ needs.build-release-zip.outputs.version_string }})."
+              exit 0
+            fi
+
+            echo "Push rejected (attempt ${attempt}) — retrying against current state."
+            sleep $(( (RANDOM % 8) + 2 ))
+          done
+
+          echo "Error: could not push selectors after 3 attempts."
+          exit 1

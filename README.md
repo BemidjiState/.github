@@ -520,12 +520,14 @@ Full release pipeline for packages that ship built assets — a zip, standalone 
 | `mirror_repo` | No | `''` | Repository name (same owner) to mirror stable releases into; empty disables |
 | `mirror_stable_only` | No | `true` | Mirror only stable releases (skip `-rc` prereleases) |
 | `mirror_target_ref` | No | `main` | Ref in the mirror repository the `<package>@<version>` tag is created on |
+| `selectors_repo` | No | `''` | Repository holding committed PurgeCSS selector extracts; stable releases commit `selectors_file` under `selectors/` and tag `selectors@X.Y.Z` when the content changed. Empty disables |
+| `selectors_file` | No | `''` | Basename of the selectors file among the release's assets (must also be in `extra_assets`) |
 
 **Outputs:** `version_string` — the version that was released.
 
 **Secrets:** `auth_app_id`, `auth_app_key` — pass `${{ vars.ORG__BSU_RELEASE_BOT_APP_ID }}` and `${{ secrets.ORG__BSU_RELEASE_BOT_PRIV_KEY }}`
 
-**Jobs:** `build-release-zip` → `publish-github-release` → `mirror-release-assets` (stable releases only, when `mirror_repo` is set)
+**Jobs:** `build-release-zip` → `publish-github-release` → `mirror-release-assets` (stable releases only, when `mirror_repo` is set) → `publish-selectors` (stable releases only, when `selectors_repo`/`selectors_file` are set; diff-only, plain `selectors@X.Y.Z` tags with the carrier's own patch-bumped semver — never release objects)
 
 **Caller template:** `repo-templates/create-tag-and-release.yml`
 
